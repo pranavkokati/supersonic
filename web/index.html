@@ -366,10 +366,6 @@ sonic doctor</pre>
             <p>No. One LLM key (Anthropic, OpenAI, or a local Ollama server) is all that's required. GitHub shipping, Linear, and research enrichment are all optional and off by default.</p>
           </details>
           <details class="faq-item">
-            <summary>Does it race multiple coding agents against each other?</summary>
-            <p>No, deliberately not. An earlier design ran two agents concurrently and picked a winner with a bandit — it roughly doubled LLM spend for a benefit the Verify gate already delivers for free. It was cut. One configured agent per project.</p>
-          </details>
-          <details class="faq-item">
             <summary>Can I try without API keys?</summary>
             <p>Yes — <code>sonic run --demo</code> runs the full loop in demo mode with synthetic turns, so you can see the checkpoint/verify/rollback mechanics before connecting a provider.</p>
           </details>
