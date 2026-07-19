@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/assets/css/style.css?v=5" />
   <link rel="stylesheet" href="/assets/css/sonic.css?v=3" />
-  <link rel="stylesheet" href="/assets/css/dashboard.css?v=2" />
+  <link rel="stylesheet" href="/assets/css/dashboard.css?v=3" />
   <link rel="stylesheet" href="/assets/css/dashboard-refresh.css?v=1" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 14 L14 3 L14 9 L21 9 L10 21 L10 15 Z' fill='%23e2542a'/></svg>" />
 </head>
@@ -138,6 +138,7 @@
                   <button type="button" class="sn-mtab" data-pane="diff" role="tab">Diff</button>
                   <button type="button" class="sn-mtab" data-pane="dle" role="tab">DLE</button>
                   <button type="button" class="sn-mtab" data-pane="review" role="tab">Review <span id="review-tab-badge" class="sn-mtab-badge hidden">0</span></button>
+                  <button type="button" class="sn-mtab" data-pane="receipts" role="tab">Receipts <span id="receipts-tab-badge" class="sn-mtab-badge hidden">0</span></button>
                 </div>
                 <div id="pane-agent" class="sn-mpane" role="tabpanel">
                   <div id="agent-panel" class="sn-agent-panel">
@@ -217,6 +218,19 @@
                   -->
                   <div id="review-summary" class="sn-review-summary sn-pane-placeholder">Ship a turn to see its review brief — the ranked list of what to actually read before you trust it.</div>
                   <ul id="review-list" class="sn-review-list"></ul>
+                </div>
+                <div id="pane-receipts" class="sn-mpane hidden" role="tabpanel">
+                  <!--
+                    Signed Turn Receipts — an Ed25519-signed reproducibility record for every
+                    shipped turn, written to .supersonic/receipts/turn-<n>.json in the same git
+                    commit as the checkpoint it describes (see verify/receipts.py). Driven by
+                    "turn_receipt" events; not a Verify signal, so a rolled-back turn produces
+                    nothing here, same as the Review tab. Verify any receipt offline with
+                    `sonic verify-receipts <path>` — the public key travels inside the receipt,
+                    so no access to the machine that generated it is required.
+                  -->
+                  <div id="receipts-summary" class="sn-review-summary sn-pane-placeholder">Ship a turn to see its signed receipt — a prompt/diff fingerprint and the full gate verdict, Ed25519-signed and verifiable offline with `sonic verify-receipts`.</div>
+                  <ul id="receipts-list" class="sn-receipt-list"></ul>
                 </div>
               </div>
 
@@ -346,7 +360,7 @@
     </main>
   </div>
 
-  <script src="/assets/js/dashboard.js?v=2"></script>
+  <script src="/assets/js/dashboard.js?v=3"></script>
   <script src="/assets/js/dashboard-shell.js?v=1"></script>
 </body>
 </html>

@@ -118,6 +118,16 @@ class UserSecrets(BaseModel):
     # Test Quality to count as passed for that turn. Floored/ceilinged to a
     # valid probability.
     test_quality_min_kill_rate: float = Field(default=0.7, ge=0.0, le=1.0)
+    # Signed Turn Receipts: for every turn that ships, write an Ed25519-signed
+    # JSON attestation (prompt hash, diff hash, full gate verdict, provider/
+    # model, coding agent) to .supersonic/receipts/turn-<n>.json in the SAME
+    # commit as the checkpoint it describes. Not a Verify signal — like
+    # Review Risk, it never blocks a turn, it's a reproducibility record for
+    # turns that already shipped. Verify any receipt with `sonic verify-
+    # receipts <path>`; the public key travels inside the receipt itself, so
+    # no access to this machine's private key is needed to check one. On by
+    # default.
+    dle_signed_receipts: bool = True
 
     model_config = ConfigDict(extra="ignore")
 

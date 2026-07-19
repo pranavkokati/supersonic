@@ -99,8 +99,9 @@
     document.querySelector("#run-progress")?.classList.remove("hidden");
     document.querySelector("#run-progress-fill").style.width = "4%";
     resetDleTrack();
-    document.querySelector("#dle-log").textContent = "Deterministic Loop Engine stage detail streams here each turn — static factoring, patch-diff streaming, syntax shield, telemetry gate, and ship.";
+    document.querySelector("#dle-log").textContent = "Deterministic Loop Engine stage detail streams here each turn — static factoring, patch-diff streaming, syntax shield, telemetry gate, dependency trust, secret leak gate, test quality (mutation testing), and ship.";
     resetReviewBanner();
+    resetReceiptsPane();
     setStatus("running");
   }
 
@@ -170,6 +171,9 @@
         break;
       case "review_brief":
         renderReviewBrief(evt);
+        break;
+      case "turn_receipt":
+        renderTurnReceipt(evt);
         break;
       case "turn_started":
         bumpTurn();
@@ -374,6 +378,67 @@
     if (summaryEl) summaryEl.classList.remove("hidden");
     const listEl = document.querySelector("#review-list");
     if (listEl) listEl.innerHTML = "";
+  }
+
+  /**
+   * Signed Turn Receipts — fired once per shipped turn by
+   * RunContext.receipt_event() in orchestrator.py, from verify/receipts.py's
+   * Ed25519-signed attestation. Expected shape (the receipt's own payload,
+   * spread flat, plus "signature"):
+   *   {
+   *     "type": "turn_receipt", "turn": <int>, "timestamp": <iso8601>,
+   *     "goal": <string>, "coding_agent": <string>, "provider": <string>,
+   *     "model": <string>, "temperature": <number>,
+   *     "prompt_sha256": <hex>, "diff_sha256": <hex>,
+   *     "diff_stat": { "files_changed", "insertions", "deletions" },
+   *     "gate": { ...GateResult.to_dict() }, "public_key": <hex>, "signature": <hex>
+   *   }
+   * This is generated client-side by the run that just happened, so it's
+   * always shown as "signed" here — it's not re-verifying its own signature
+   * live in the browser. The point of the signature is offline/third-party
+   * verification later (`sonic verify-receipts <path>`), against the files
+   * actually committed to the repo, not against this SSE event.
+   */
+  function renderTurnReceipt(evt) {
+    const listEl = document.querySelector("#receipts-list");
+    const summaryEl = document.querySelector("#receipts-summary");
+    const badge = document.querySelector("#receipts-tab-badge");
+    if (!listEl) return;
+
+    summaryEl?.classList.add("hidden");
+    if (badge) {
+      const count = listEl.children.length + 1;
+      badge.textContent = String(count);
+      badge.classList.remove("hidden");
+    }
+
+    const li = document.createElement("li");
+    li.className = "sn-receipt-item";
+    const stat = evt.diff_stat || {};
+    li.innerHTML = `
+      <div class="sn-receipt-item-head">
+        <span class="sn-receipt-item-turn">Turn ${evt.turn}</span>
+        <span class="sn-receipt-item-badge">✓ signed</span>
+        <span class="sn-receipt-item-lines">${stat.files_changed || 0} file(s) · +${stat.insertions || 0}/-${stat.deletions || 0}</span>
+      </div>
+      <p class="sn-receipt-item-meta">
+        ${escapeHtml(evt.coding_agent || "?")} · ${escapeHtml(evt.provider || "none")}${evt.model ? " · " + escapeHtml(evt.model) : ""}<br />
+        prompt ${(evt.prompt_sha256 || "").slice(0, 16)}… · diff ${(evt.diff_sha256 || "").slice(0, 16)}…<br />
+        key ${(evt.public_key || "").slice(0, 16)}…
+      </p>
+    `;
+    listEl.prepend(li);
+
+    playByPlay(`Turn ${evt.turn}: signed receipt written (${stat.files_changed || 0} file(s))`);
+  }
+
+  function resetReceiptsPane() {
+    const summaryEl = document.querySelector("#receipts-summary");
+    if (summaryEl) summaryEl.classList.remove("hidden");
+    const listEl = document.querySelector("#receipts-list");
+    if (listEl) listEl.innerHTML = "";
+    const badge = document.querySelector("#receipts-tab-badge");
+    badge?.classList.add("hidden");
   }
 
   function appendCheckpoint(evt) {

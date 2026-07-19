@@ -28,8 +28,13 @@ other files").
 
 ## How the score is computed (heuristic, and documented as such)
 
-Four independent, cheap-to-compute signals, each contributing points to a
-per-file score:
+Four independent, cheap-to-compute signals form the base score, described
+below. Three more note-only additions layer on top when the corresponding
+DLE gate found something for that file this turn — a Dependency Trust
+finding, a Secret Leak finding, or a Test Quality surviving mutant each add
+a plain-English reason and a smaller point bump (`_dependency_notes_by_file`,
+`_secret_notes_by_file`, `_test_quality_notes_by_file`) — but the four below
+are the ones that run on every turn, gate findings or not:
 
   1. **Blast radius** — how many other files in the repo import this file
      (see `compute_blast_radius`). For Python, this is real `ast.walk`-based

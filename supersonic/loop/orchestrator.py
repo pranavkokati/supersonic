@@ -43,6 +43,7 @@ from supersonic.verify.dependency_trust import DependencyTrustVerdict, run_depen
 from supersonic.verify.secret_leak import SecretLeakVerdict, run_secret_leak_gate
 from supersonic.verify.gate import GateResult, build_qa_reprompt, run_gate
 from supersonic.verify.qa import CheckResult, run_tests
+from supersonic.verify.receipts import build_receipt, write_receipt
 from supersonic.verify.review_risk import build_review_brief
 from supersonic.verify.syntax_shield import run_syntax_shield
 from supersonic.verify.telemetry_gate import TelemetryVerdict, run_telemetry_gate
@@ -115,6 +116,12 @@ class RunContext:
         list from verify/review_risk.py. SSE-only, same as dle_stage_event;
         not persisted to the store, the dashboard renders it live."""
         self.emit({"type": "review_brief", **brief.to_dict(), "summary": brief.summary_line()})
+
+    def receipt_event(self, receipt) -> None:
+        """Fired once per shipped turn — the signed reproducibility record
+        from verify/receipts.py. SSE-only, same treatment as review_brief_event;
+        the dashboard renders a short verified badge, it never blocks a turn."""
+        self.emit({"type": "turn_receipt", **receipt.to_dict()})
 
 
 def _pick_idea(secrets: UserSecrets, provider: Optional[LLMProvider], seed: str, project_idea: str, demo: bool) -> tuple:
@@ -304,6 +311,13 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                 gate = run_gate(workdir, provider=None, goal=goal, diff="", invariants=[], recent_diffs=[], min_signals_pass=secrets.verify_min_signals_pass)
             else:
                 runner = CodingAgentRunner(chosen_agent, secrets)
+                # Tracks the literal text of the LAST prompt actually sent to
+                # the coding agent this turn — including whichever corrective
+                # re-prompt, if any, is the one that produced the diff that
+                # ends up shipping. Signed Turn Receipts hash this, not the
+                # prompt *template*, so the receipt reflects what the agent
+                # genuinely saw.
+                effective_prompt = prompt
 
                 # DLE stage 2 — patch-diff mode (optional). Falls back to the
                 # normal full-file-rewrite path on any failure; never blocks a turn.
@@ -335,6 +349,7 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                         ctx.agent_line("[syntax shield] syntax error detected — issuing one corrective re-prompt")
                         corrective_prompt = f"{prompt}\n\n{shield_result.reprompt}"
                         runner.run(corrective_prompt, workdir, on_line=ctx.agent_line)
+                        effective_prompt = corrective_prompt
                         diff = checkpoints.diff_since(last_good)
                         shield_result = run_syntax_shield(workdir, diff)
                     if shield_result.ran:
@@ -408,6 +423,7 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                                 ctx.agent_line("[dependency trust] unverifiable package detected — issuing one corrective re-prompt")
                                 corrective_prompt = f"{prompt}\n\n{dependency_trust_verdict.reprompt}"
                                 runner.run(corrective_prompt, workdir, on_line=ctx.agent_line)
+                                effective_prompt = corrective_prompt
                                 diff = checkpoints.diff_since(last_good)
                                 dependency_trust_verdict = run_dependency_trust(workdir, diff)
                             if dependency_trust_verdict.ran:
@@ -457,6 +473,7 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                                     ctx.agent_line("[secret leak] likely credential detected — issuing one corrective re-prompt")
                                     corrective_prompt = f"{prompt}\n\n{secret_leak_verdict.reprompt}"
                                     runner.run(corrective_prompt, workdir, on_line=ctx.agent_line)
+                                    effective_prompt = corrective_prompt
                                     diff = checkpoints.diff_since(last_good)
                                     secret_leak_verdict = run_secret_leak_gate(workdir, diff)
                                 if secret_leak_verdict.ran:
@@ -554,6 +571,7 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                                 ctx.agent_line("[verify gate] fixable test/lint failure detected — issuing one corrective re-prompt")
                                 corrective_prompt = f"{prompt}\n\n{qa_reprompt}"
                                 runner.run(corrective_prompt, workdir, on_line=ctx.agent_line)
+                                effective_prompt = corrective_prompt
                                 diff = checkpoints.diff_since(last_good)
                                 gate = run_gate(
                                     workdir, provider=provider, goal=goal, diff=diff,
@@ -572,6 +590,28 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
             if gate.passed:
                 ledger.record_decision(turn, f"Turn {turn}: {goal[:80]}", gate.summary, tags=[chosen_agent])
                 ctx.ledger_event("decision", goal[:80], turn)
+
+                # DLE post-verify — Signed Turn Receipts: write the signed
+                # attestation into the working tree BEFORE the checkpoint
+                # commit below, so it lands in the exact same commit as the
+                # diff it describes. Not a Verify signal (like Review Risk,
+                # it never blocks a turn) — skipped in demo mode since
+                # there's no real prompt/diff/gate to attest to.
+                if not demo and secrets.dle_signed_receipts:
+                    try:
+                        receipt = build_receipt(
+                            turn=turn, goal=goal, prompt=effective_prompt, diff=diff,
+                            coding_agent=chosen_agent,
+                            provider_name=provider.name if provider else "none",
+                            model=(provider.fast_model or provider.default_model) if provider else "",
+                            temperature=0.0,
+                            gate=gate,
+                        )
+                        write_receipt(workdir, receipt)
+                        ctx.receipt_event(receipt)
+                    except Exception:
+                        logger.exception("failed to write signed turn receipt, continuing without it")
+
                 new_checkpoint = checkpoints.create(turn, goal[:150])
                 last_good = new_checkpoint
                 ctx.checkpoint_event(new_checkpoint, verified=True)

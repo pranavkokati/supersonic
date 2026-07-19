@@ -79,6 +79,7 @@
               <span>Secret Leak</span><span class="arrow">→</span>
               <span>Test Quality</span><span class="arrow">→</span>
               <span>Verify</span><span class="arrow">→</span>
+              <span>Signed Receipt</span><span class="arrow">→</span>
               <span>Ship</span><span class="arrow">→</span>
               <span>Review Risk</span>
             </div>
@@ -208,6 +209,23 @@
           </article>
 
           <article class="df-feature-card">
+            <div class="df-feature-visual df-feature-visual--warm">
+              <div class="df-feature-inner">
+                <ul class="feat-int-list">
+                  <li><strong>prompt_sha256</strong><span class="feat-int-ok">a91f...</span></li>
+                  <li><strong>diff_sha256</strong><span class="feat-int-ok">7c2e...</span></li>
+                  <li><strong>ed25519 signature</strong><span class="feat-int-ok">✓ verified</span></li>
+                </ul>
+                <p class="feat-stat">sonic verify-receipts<span>checks any receipt offline, from any checkout — the public key travels inside it</span></p>
+              </div>
+            </div>
+            <div class="df-feature-copy">
+              <h3>Signed Turn Receipts: proof of what actually shipped.</h3>
+              <p>Every turn that ships gets an Ed25519-signed JSON attestation — the exact prompt hash, diff hash, and full Verify gate verdict — written into the <em>same git commit</em> as the checkpoint it describes. Hand-edit a receipt or the diff around it after the fact and the signature stops verifying. Not a gate — it never blocks a turn, it's a reproducibility record for one that already shipped.</p>
+            </div>
+          </article>
+
+          <article class="df-feature-card">
             <div class="df-feature-visual df-feature-visual--blue">
               <div class="df-feature-inner">
                 <ul class="feat-stack">
@@ -289,12 +307,17 @@
             <p>Tests, lint/typecheck, an LLM goal-satisfaction critic, a diff-similarity thrash detector, an optional browser telemetry check, mutation-based test quality, and the Dependency Trust and Secret Leak results above.</p>
           </article>
           <article class="trust-card">
-            <p class="trust-label">8 · Rollback or ship</p>
+            <p class="trust-label">8 · Signed Receipt</p>
+            <h3>An Ed25519-signed reproducibility record</h3>
+            <p>Prompt hash, diff hash, and the full gate verdict, signed and written into the same commit as the checkpoint below. Verify any receipt offline with <code>sonic verify-receipts</code> — no access to the machine that generated it required.</p>
+          </article>
+          <article class="trust-card">
+            <p class="trust-label">9 · Rollback or ship</p>
             <h3>Only proven progress sticks</h3>
             <p>Pass → new checkpoint, pushed to GitHub. Fail → hard reset to the last good state, failure logged to the Continuity Graph.</p>
           </article>
           <article class="trust-card">
-            <p class="trust-label">9 · Review Risk</p>
+            <p class="trust-label">10 · Review Risk</p>
             <h3>Told what to actually check</h3>
             <p>Every shipped turn's changed files ranked by blast radius, sensitive-path exposure, missing test coverage, unverified dependencies, and suspicious credential-shaped assignments — a static heuristic, not another LLM call, so it's instant.</p>
           </article>
@@ -355,6 +378,7 @@ sonic doctor</pre>
           <span class="differentiator-pill">Dependency Trust Gate</span>
           <span class="differentiator-pill">Secret Leak Gate</span>
           <span class="differentiator-pill">Test Quality Gate</span>
+          <span class="differentiator-pill">Signed Turn Receipts</span>
           <span class="differentiator-pill">Checkpoint / Verify / Rollback</span>
           <span class="differentiator-pill">Continuity Graph</span>
           <span class="differentiator-pill">Provider-agnostic</span>
@@ -380,6 +404,10 @@ sonic doctor</pre>
           <details class="faq-item">
             <summary>What is the Test Quality Gate?</summary>
             <p>A check that catches the one failure mode "tests: PASS" can't see by definition: a test that runs the code but never actually verifies anything. Once a turn's real test suite passes, the gate parses the diff to find which functions were touched, generates a small bounded set of single-point AST mutants against just those functions (comparison operator flips, boolean operator flips, boolean constant flips — capped at 4 per function, 16 total, inside a 90-second budget), and re-runs the same test command against each mutant in turn, restoring the original file immediately after every run. A mutant the suite still passes against is a "survivor" — evidence that whatever line changed, no test noticed. Unlike Dependency Trust and Secret Leak, this is a fair-vote signal, not a veto: a surviving mutant is heuristic evidence of a weak test, not proof of a bug, so it participates in the normal Verify signal count instead of failing the turn outright.</p>
+          </details>
+          <details class="faq-item">
+            <summary>What are Signed Turn Receipts?</summary>
+            <p>An Ed25519-signed JSON attestation, written for every turn that ships, to <code>.supersonic/receipts/turn-&lt;n&gt;.json</code> — in the same git commit as the checkpoint it describes. It records a SHA-256 hash of the literal prompt sent to the coding agent (including whichever corrective re-prompt, if any, actually produced the shipped diff), a SHA-256 hash of the diff itself, a files/insertions/deletions stat, which LLM provider/model Supersonic's own loop used that turn, which coding-agent CLI wrote the diff, and the full Verify gate verdict — every signal, not just pass/fail. The private signing key is generated once per machine, lives at <code>~/.supersonic/keys/</code>, and never leaves it; the public key travels inside every receipt, so <code>sonic verify-receipts &lt;path&gt;</code> can check one from any checkout — a teammate's clone, CI, an old backup — with zero setup. What it proves is narrower than a Sigstore-style attestation: not that the prompt itself wasn't misleading, but that the receipt file, byte for byte, was produced by a specific local install and hasn't been edited since. Hand-edit a shipped receipt, or the diff around it, without the private key, and the signature stops verifying. Not a Verify signal — like Review Risk, it never blocks a turn.</p>
           </details>
           <details class="faq-item">
             <summary>Is this hosted?</summary>

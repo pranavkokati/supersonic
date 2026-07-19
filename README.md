@@ -7,8 +7,8 @@
 
 Supersonic is a local, open-source autonomous build loop. It plans, checkpoints, builds, verifies, and ships —
 and unlike a single-call router that blindly decides what happens next, it can only keep a turn's changes once
-they clear an independent four-signal Verify gate. A failed turn is rolled back to the last proven-good state,
-not left to compound into a worse one.
+they clear an independent, up-to-eight-signal Verify gate. A failed turn is rolled back to the last proven-good
+state, not left to compound into a worse one.
 
 ## What makes this different
 
@@ -28,10 +28,34 @@ around three specific answers to those problems:
   an undifferentiated diff. See `supersonic/verify/review_risk.py` for the exact scoring.
 
 - **Checkpoint → Verify → Rollback.** Every turn is git-checkpointed before it runs. Verification checks up to
-  four independent signals — tests, lint/typecheck, an LLM goal-satisfaction critic, and a diff-similarity
-  thrash detector — and a turn is only kept if enough of the signals that actually ran come back positive.
-  A failed turn is hard-reset to the last verified checkpoint, and the failure reason is written to permanent
-  memory so the next attempt doesn't repeat it. Review Risk only ever looks at a turn that already passed this.
+  eight independent signals — tests, lint/typecheck, an LLM goal-satisfaction critic, a diff-similarity thrash
+  detector, an optional browser telemetry check, and three pre-flight gates described below — and a turn is
+  only kept if enough of the signals that actually ran come back positive. A failed turn is hard-reset to the
+  last verified checkpoint, and the failure reason is written to permanent memory so the next attempt doesn't
+  repeat it. Review Risk and Signed Turn Receipts only ever look at a turn that already passed this.
+
+- **Dependency Trust Gate.** Every newly-added package in a turn's diff is checked against the real PyPI/npm
+  registry before it ships. A nonexistent package fails the turn outright — the exact pattern behind
+  "slopsquatting," where an attacker pre-registers the name an agent is statistically likely to hallucinate.
+  A hard veto, not a vote: see `supersonic/verify/dependency_trust.py`.
+
+- **Secret Leak Gate.** Every turn's added diff lines are scanned for the structural shape of a real
+  credential — AWS keys, PEM blocks, GitHub/Slack/Stripe/Anthropic/OpenAI/Google tokens, a new committed
+  `.env` file. A high-confidence match fails the turn outright, same severity as a syntax error. Also a hard
+  veto: see `supersonic/verify/secret_leak.py`.
+
+- **Test Quality Gate.** Once a turn's real tests pass, a small bounded set of AST-level mutants (comparison/
+  boolean/constant flips), scoped only to the functions the turn touched, are re-tested against the same
+  suite. A mutant the suite doesn't catch means a test that passes without actually verifying that logic — the
+  one failure mode "tests: PASS" can't see by definition. Unlike the two gates above, this is a fair-vote
+  signal, not a veto: see `supersonic/verify/test_quality.py`.
+
+- **Signed Turn Receipts.** Every turn that ships gets an Ed25519-signed JSON attestation — prompt hash, diff
+  hash, full Verify gate verdict, provider/model, coding agent — written to
+  `.supersonic/receipts/turn-<n>.json` in the *same commit* as the checkpoint it describes. Verify any receipt
+  offline, from any checkout, with `sonic verify-receipts <path>` — the public key travels inside the receipt
+  itself. Not a Verify signal; it never blocks a turn, it's a reproducibility record for one that already
+  shipped. See `supersonic/verify/receipts.py`.
 
 - **Continuity Graph, not a truncated transcript.** Instead of compressing a flat context blob down to fit a
   token budget, Supersonic keeps an append-only, git-committed ledger of structured facts — decisions,
@@ -74,6 +98,13 @@ sonic doctor
 Checks which LLM provider is configured, which coding-agent CLIs are on `PATH`, and whether `git`/`gh` are
 available for shipping.
 
+```bash
+sonic verify-receipts <path-to-project>
+```
+
+Cryptographically verifies every Signed Turn Receipt in a project, offline — no access to the machine that
+generated them required.
+
 ## Pipeline
 
 | Stage | What happens |
@@ -81,8 +112,13 @@ available for shipping.
 | Plan | One provider-agnostic call grounds the idea and writes a build plan + product name |
 | Checkpoint | Git-native commit + tag of the current verified state |
 | Build | Claude Code, Codex, OpenCode, Cursor Agent, or Aider — bring your own coding-agent CLI |
-| Verify | Tests + lint/typecheck + goal-satisfaction critic + thrash detector, combined into one pass/fail gate |
+| Dependency Trust | Newly-added packages checked against the real PyPI/npm registry — nonexistent fails the turn outright |
+| Secret Leak | Added diff lines scanned for the structural shape of a real credential — a match fails the turn outright |
+| Test Quality | Once real tests pass, bounded AST mutants scoped to touched functions are re-tested against the suite — a fair-vote signal |
+| Verify | Tests + lint/typecheck + goal-satisfaction critic + thrash detector + the above, combined into one pass/fail gate |
+| Signed Receipt | An Ed25519-signed prompt/diff/gate attestation is written into the same commit as the checkpoint below |
 | Rollback or ship | Pass → new checkpoint, pushed to GitHub. Fail → hard reset, failure logged to the Continuity Graph |
+| Review Risk | Every file in a shipped turn ranked by blast radius, sensitive-path exposure, and missing test coverage |
 
 The loop stops when the planner marks the build genuinely complete *and* the latest verification passed. The
 configured `max_turn_budget` remains a hard ceiling regardless.
@@ -94,7 +130,7 @@ supersonic/          Python package
   providers/          LLM provider abstraction (Anthropic, OpenAI, Ollama) — auto-detected
   memory/             Continuity Graph — ledger, retrieval, distillation
   loop/               Checkpoint / Rollback / Planner / Orchestrator
-  verify/             Tests, lint, goal critic, thrash detector, combined gate
+  verify/             Tests, lint, critic, thrash, dependency trust, secret leak, test quality, receipts, combined gate
   agents/             Coding-agent CLI runner
   integrations/       Native git + gh CLI shipping, optional Linear, optional webhook notify
   research/           Optional Tavily enrichment — never required

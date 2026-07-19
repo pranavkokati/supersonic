@@ -119,6 +119,38 @@ def schedule(
     console.print(f"Scheduler {'enabled' if enable else 'disabled'} · every {sec.schedule_interval_hours}h")
 
 
+@app.command("verify-receipts")
+def verify_receipts(workdir: str = typer.Argument(..., help="Path to a project's working tree")) -> None:
+    """Cryptographically verify every Signed Turn Receipt in a project.
+
+    Checks each .supersonic/receipts/turn-<n>.json against the Ed25519
+    public key embedded in the receipt itself — no access to the machine
+    that generated it is required, so this works against any checkout
+    (a teammate's clone, a CI runner, an old backup)."""
+    from pathlib import Path
+
+    from supersonic.verify.receipts import verify_all_receipts
+
+    results = verify_all_receipts(Path(workdir))
+    if not results:
+        console.print(f"[yellow]No receipts found[/] under {workdir}/.supersonic/receipts/")
+        raise typer.Exit(code=0)
+
+    table = Table(title=f"Signed Turn Receipts — {workdir}")
+    table.add_column("Turn")
+    table.add_column("File")
+    table.add_column("Signature")
+    all_ok = True
+    for r in results:
+        ok = r.ok
+        all_ok = all_ok and ok
+        status = "[green]✓ verified[/]" if ok else f"[red]✗ {r.reason}[/]"
+        table.add_row(str(r.turn), r.path.name, status)
+    console.print(table)
+    if not all_ok:
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def portfolio() -> None:
     """Portfolio health summary across all local projects."""

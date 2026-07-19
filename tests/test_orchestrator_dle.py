@@ -52,6 +52,10 @@ def test_non_demo_turn_uses_dependency_mapper_and_syntax_shield(tmp_path, monkey
     import cleanly in isolation."""
     monkeypatch.setattr("supersonic.store.DB_PATH", tmp_path / "t.db")
     monkeypatch.setattr("supersonic.store.CONFIG_DIR", tmp_path)
+    # Signed Turn Receipts (on by default) would otherwise generate/reuse a
+    # real signing key under the actual ~/.supersonic/keys/ on whatever
+    # machine runs this suite — keep it fully sandboxed in tmp_path instead.
+    monkeypatch.setattr("supersonic.verify.receipts.CONFIG_DIR", tmp_path / "supersonic-home")
     monkeypatch.delenv("SONIC_DEMO", raising=False)
     get_settings.cache_clear()
 
@@ -115,6 +119,14 @@ def test_non_demo_turn_uses_dependency_mapper_and_syntax_shield(tmp_path, monkey
     assert dependency_mapper_calls == ["billing invoice tool"]
     # The gate passed (forced), so the checkpoint commit kept the DLE cache on disk.
     assert (workdir / ".dle" / "target_graph.json").exists()
+    # Signed Turn Receipts: a real receipt was written for the shipped turn,
+    # landed in the same working tree as the checkpoint, and verifies clean.
+    from supersonic.verify.receipts import verify_all_receipts
+
+    receipt_results = verify_all_receipts(workdir)
+    assert len(receipt_results) == 1
+    assert receipt_results[0].turn == 1
+    assert receipt_results[0].ok is True
 
 
 def _import_build_target_graph():
