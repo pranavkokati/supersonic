@@ -157,8 +157,8 @@
                 <div id="pane-dle" class="sn-mpane hidden" role="tabpanel">
                   <!--
                     Deterministic Loop Engine (DLE) pipeline — replaces the deleted Agent Racing panel.
-                    Each turn runs 5 stages before/around the agent write: Factor → Patch → Shield →
-                    Telemetry → Ship. Stage nodes below are driven by `dle_stage` events on the run's
+                    Each turn runs 7 stages before/around the agent write: Factor → Patch → Shield →
+                    Telemetry → Deptrust → Secrets → Ship. Stage nodes below are driven by `dle_stage` events on the run's
                     SSE stream (see the event-shape comment above `updateDleStage` in dashboard.js);
                     the "ship" node also lights up from the existing `checkpoint` event so it works
                     even before the backend emits a dedicated ship-stage event.
@@ -190,12 +190,17 @@
                         <p class="sn-dle-stage-detail">—</p>
                       </div>
                       <span class="sn-dle-arrow">→</span>
+                      <div class="sn-dle-stage" data-stage="secretleak">
+                        <div class="sn-dle-stage-head"><span class="sn-dle-stage-dot"></span><span class="sn-dle-stage-label">Secrets</span></div>
+                        <p class="sn-dle-stage-detail">—</p>
+                      </div>
+                      <span class="sn-dle-arrow">→</span>
                       <div class="sn-dle-stage" data-stage="ship">
                         <div class="sn-dle-stage-head"><span class="sn-dle-stage-dot"></span><span class="sn-dle-stage-label">Ship</span></div>
                         <p class="sn-dle-stage-detail">—</p>
                       </div>
                     </div>
-                    <pre id="dle-log" class="sn-agent-log sn-pane-placeholder">Deterministic Loop Engine stage detail streams here each turn — static factoring, patch-diff streaming, syntax shield, telemetry gate, and ship.</pre>
+                    <pre id="dle-log" class="sn-agent-log sn-pane-placeholder">Deterministic Loop Engine stage detail streams here each turn — static factoring, patch-diff streaming, syntax shield, telemetry gate, dependency trust, secret leak gate, and ship.</pre>
                   </div>
                 </div>
                 <div id="pane-review" class="sn-mpane hidden" role="tabpanel">

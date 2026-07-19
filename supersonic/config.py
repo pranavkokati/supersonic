@@ -96,6 +96,14 @@ class UserSecrets(BaseModel):
     # degrades to "not run" rather than blocking a turn if unreachable. On by
     # default.
     dle_dependency_trust: bool = True
+    # Secret Leak Gate: before the expensive gate, scan this turn's added diff
+    # lines for the structural shape of a real credential (AWS key, PEM
+    # private key, GitHub/Slack/Stripe/Anthropic/OpenAI/Google token, a new
+    # .env file). A high-confidence match fails the turn outright — the same
+    # severity as a syntax error. AI-assisted commits leak a real secret at
+    # roughly double the rate of human-only commits (GitGuardian, 2026); this
+    # is the mitigation for that specific, measured risk. On by default.
+    dle_secret_leak: bool = True
 
     model_config = ConfigDict(extra="ignore")
 

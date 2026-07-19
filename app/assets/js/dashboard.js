@@ -243,36 +243,42 @@
    * DLE (Deterministic Loop Engine) event contract — frontend-invented, reconcile with
    * whatever the backend agent building supersonic/loop/ actually emits.
    *
-   * The DLE replaces the deleted Agent Racing feature with a 6-stage per-turn pipeline:
-   *   1. factor    — Static Factoring: maps relevant files before the agent starts writing
-   *   2. patch     — Patch-Diff Streaming: agent emits unified diffs instead of full-file rewrites
-   *   3. shield    — Syntax Shield: fast local AST check before the expensive verify gate
-   *   4. telemetry — Telemetry Gate: optional local Playwright check (console errors, layout
-   *                  sanity, perf-regression budget); only runs if a frontend dev server is
-   *                  detected, otherwise reports status "skipped"
-   *   5. deptrust  — Dependency Trust Gate: newly-added packages in this turn's diff are
-   *                  checked against the real PyPI/npm registry; a nonexistent package fails
-   *                  the turn outright (see supersonic/verify/dependency_trust.py)
-   *   6. ship      — the existing Checkpoint/Rollback step (untouched); driven here from the
-   *                  existing "checkpoint" event, not a dedicated dle_stage event, unless the
-   *                  backend chooses to emit one for "ship" too (harmless either way — the
-   *                  last write for a given stage/turn wins).
+   * The DLE replaces the deleted Agent Racing feature with a 7-stage per-turn pipeline:
+   *   1. factor     — Static Factoring: maps relevant files before the agent starts writing
+   *   2. patch      — Patch-Diff Streaming: agent emits unified diffs instead of full-file rewrites
+   *   3. shield     — Syntax Shield: fast local AST check before the expensive verify gate
+   *   4. telemetry  — Telemetry Gate: optional local Playwright check (console errors, layout
+   *                   sanity, perf-regression budget); only runs if a frontend dev server is
+   *                   detected, otherwise reports status "skipped"
+   *   5. deptrust   — Dependency Trust Gate: newly-added packages in this turn's diff are
+   *                   checked against the real PyPI/npm registry; a nonexistent package fails
+   *                   the turn outright (see supersonic/verify/dependency_trust.py)
+   *   6. secretleak — Secret Leak Gate: this turn's added diff lines are scanned for the
+   *                   structural shape of a real credential (AWS key, PEM block, GitHub/
+   *                   Slack/Stripe/Anthropic/OpenAI/Google token, a new .env file); a
+   *                   high-confidence match fails the turn outright, same severity as an
+   *                   unresolved syntax error (see supersonic/verify/secret_leak.py)
+   *   7. ship       — the existing Checkpoint/Rollback step (untouched); driven here from the
+   *                   existing "checkpoint" event, not a dedicated dle_stage event, unless the
+   *                   backend chooses to emit one for "ship" too (harmless either way — the
+   *                   last write for a given stage/turn wins).
    *
    * Expected event shape on the run's SSE stream:
    *   {
    *     "type": "dle_stage",
-   *     "stage": "factor" | "patch" | "shield" | "telemetry" | "deptrust" | "ship",
+   *     "stage": "factor" | "patch" | "shield" | "telemetry" | "deptrust" | "secretleak" | "ship",
    *     "status": "pending" | "running" | "pass" | "fail" | "skipped",
    *     "detail": "short human-readable line, e.g. 'Static factoring: 3 files selected of 142'"
    *   }
    *
    * "skipped" is a distinct state from "fail" — it means the stage was not applicable this
-   * turn (e.g. Telemetry with no frontend dev server running, or Deptrust with no new
-   * dependencies this turn), not that it ran and broke. Unknown `stage` values are ignored
-   * rather than throwing, so an unrecognized/future stage name from the backend degrades
-   * silently instead of breaking the run view.
+   * turn (e.g. Telemetry with no frontend dev server running, Deptrust with no new
+   * dependencies this turn, or Secretleak with no credential-shaped values this turn), not
+   * that it ran and broke. Unknown `stage` values are ignored rather than throwing, so an
+   * unrecognized/future stage name from the backend degrades silently instead of breaking
+   * the run view.
    */
-  const DLE_STAGES = ["factor", "patch", "shield", "telemetry", "deptrust", "ship"];
+  const DLE_STAGES = ["factor", "patch", "shield", "telemetry", "deptrust", "secretleak", "ship"];
 
   function resetDleTrack({ keepShip = false } = {}) {
     DLE_STAGES.forEach((stage) => {

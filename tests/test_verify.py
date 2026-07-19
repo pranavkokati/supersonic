@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from supersonic.store import create_project, enqueue_project, init_db, list_queue, portfolio_summary
 from supersonic.templates import apply_template, list_templates
-from supersonic.verify.gate import run_gate
-from supersonic.verify.qa import run_tests
+from supersonic.verify.critic import CriticVerdict
+from supersonic.verify.gate import GateResult, build_qa_reprompt, run_gate
+from supersonic.verify.qa import CheckResult, run_tests
+from supersonic.verify.thrash import ThrashVerdict as _ThrashVerdict
 from supersonic.verify.telemetry_gate import TelemetryVerdict
 from supersonic.verify.thrash import detect
 from supersonic.webhooks import sign_payload
@@ -94,6 +96,65 @@ def test_run_gate_fails_when_only_telemetry_ran_and_it_failed(tmp_path):
     assert gate.signals_ran == 1
     assert gate.signals_passed == 0
     assert gate.passed is False
+
+
+def test_build_qa_reprompt_empty_when_gate_passed(tmp_path):
+    gate = run_gate(
+        tmp_path, provider=None, goal="do something", diff="", invariants=[], recent_diffs=[], min_signals_pass=3
+    )
+    assert gate.passed is True
+    assert build_qa_reprompt(gate) == ""
+
+
+def test_build_qa_reprompt_empty_when_only_critic_or_thrash_failed():
+    # A failure driven only by critic/thrash (no fixable tests/lint signal)
+    # must NOT produce a re-prompt — those are judgment calls, not something
+    # a re-prompt naming "the exact error" can meaningfully target.
+    gate = GateResult(
+        passed=False, signals_ran=1, signals_passed=0,
+        tests=CheckResult(name="Tests"), lint=CheckResult(name="Lint/typecheck"),
+        critic=CriticVerdict(ran=True, satisfied=False, reasoning="doesn't fully satisfy the goal"),
+        thrash=_ThrashVerdict(), summary="1/1 signals passed",
+    )
+    assert build_qa_reprompt(gate) == ""
+
+
+def test_build_qa_reprompt_names_the_failing_test_command_and_output():
+    gate = GateResult(
+        passed=False, signals_ran=1, signals_passed=0,
+        tests=CheckResult(name="Tests", ran=True, passed=False, command="pytest -q", output="FAILED tests/test_x.py::test_x"),
+        lint=CheckResult(name="Lint/typecheck"),
+        critic=CriticVerdict(), thrash=_ThrashVerdict(), summary="0/1 signals passed",
+    )
+    reprompt = build_qa_reprompt(gate)
+    assert "pytest -q" in reprompt
+    assert "test_x" in reprompt
+    assert "failing test suite" in reprompt
+
+
+def test_build_qa_reprompt_names_the_failing_lint_command_and_output():
+    gate = GateResult(
+        passed=False, signals_ran=1, signals_passed=0,
+        tests=CheckResult(name="Tests"),
+        lint=CheckResult(name="Lint/typecheck", ran=True, passed=False, command="ruff check .", output="F401 unused import 'os'"),
+        critic=CriticVerdict(), thrash=_ThrashVerdict(), summary="0/1 signals passed",
+    )
+    reprompt = build_qa_reprompt(gate)
+    assert "ruff check ." in reprompt
+    assert "F401" in reprompt
+    assert "lint/typecheck failure" in reprompt
+
+
+def test_build_qa_reprompt_combines_both_tests_and_lint_when_both_fail():
+    gate = GateResult(
+        passed=False, signals_ran=2, signals_passed=0,
+        tests=CheckResult(name="Tests", ran=True, passed=False, command="pytest -q", output="FAILED tests/test_x.py"),
+        lint=CheckResult(name="Lint/typecheck", ran=True, passed=False, command="ruff check .", output="F401 unused import"),
+        critic=CriticVerdict(), thrash=_ThrashVerdict(), summary="0/2 signals passed",
+    )
+    reprompt = build_qa_reprompt(gate)
+    assert "failing test suite" in reprompt
+    assert "lint/typecheck failure" in reprompt
 
 
 def test_webhook_sign():

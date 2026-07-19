@@ -31,12 +31,18 @@ other files").
 Four independent, cheap-to-compute signals, each contributing points to a
 per-file score:
 
-  1. **Blast radius** — how many other files in the repo import this file,
-     via a best-effort static reference count (see `compute_blast_radius`).
-     Not LSP-grade symbol resolution (same deliberate scope limit as
-     `dependency_mapper.py`) — a text-reference count across import
-     statements. Good enough to separate "isolated CSS tweak" from "core
-     module eleven other files depend on."
+  1. **Blast radius** — how many other files in the repo import this file
+     (see `compute_blast_radius`). For Python, this is real `ast.walk`-based
+     import-graph resolution: actual `Import`/`ImportFrom` node matching,
+     with relative imports (`from . import x`, `from ..pkg import y`)
+     resolved against the importing file's own package path, plus a
+     `Call`/`Name`-node fallback for the one case import resolution can't
+     settle alone (`from target import *`). For JS/TS, no in-repo AST parser
+     is available, so it falls back to the original substring-containment
+     text heuristic — same deliberate scope limit as `dependency_mapper.py`.
+     Neither is LSP-grade symbol resolution; both are good enough to
+     separate "isolated CSS tweak" from "core module eleven other files
+     depend on."
   2. **Sensitive-path/content heuristic** — keyword match against auth,
      payment, secrets, permissions, migrations, and destructive-operation
      patterns, checked against both the file path and the *added* lines of
@@ -60,6 +66,7 @@ that "review these 2 of the 14 changed files closely, skim the rest" beats
 
 from __future__ import annotations
 
+import ast
 import logging
 import os
 import re
@@ -68,6 +75,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from supersonic.verify.dependency_trust import PackageFinding
+from supersonic.verify.secret_leak import SecretFinding
 
 logger = logging.getLogger(__name__)
 
@@ -257,41 +265,227 @@ def _iter_source_files(workdir: Path) -> List[Path]:
     return out
 
 
+# --------------------------------------------------------------------------
+# Blast radius — Python: real ast.walk-based import-graph resolution.
+#
+# This replaced a substring-containment text search (does the changed file's
+# stem or dotted path appear anywhere in another file's raw text). That
+# approach flagged plain-English comments and string literals that happened
+# to contain a module name as "references", and had no way to resolve
+# relative imports (`from . import x`, `from ..pkg import y`) back to the
+# file they actually point at. The version below parses every Python file
+# once with `ast.parse` and walks real `Import`/`ImportFrom` nodes, resolving
+# relative imports against the importing file's own package path. A `from
+# target import *` is the one case import resolution alone can't settle
+# (the star could bind zero or many names) — for that case only, it falls
+# through to a `Call`/`Name` node walk checking whether the file actually
+# uses one of the target module's top-level defined function/class names.
+#
+# This is still not full symbol resolution — it doesn't track re-exports,
+# `importlib`-based dynamic imports, or `TYPE_CHECKING`-guarded imports, and
+# a syntactically broken candidate file (mid-edit, say) is simply excluded
+# from the count rather than crashing the pass. Those are the same kind of
+# deliberate scope limits `dependency_mapper.py` documents; the point is
+# "meaningfully more precise than a substring guess," not "an IDE's Find
+# References." JS/TS files still use the original substring heuristic below
+# (`_blast_radius_text_heuristic`) — no JS/TS AST parser is available in
+# this codebase, and pretending otherwise would be a worse bug than the
+# heuristic it would replace.
+# --------------------------------------------------------------------------
+
+PY_SUFFIX = ".py"
+
+
+def _module_dotted_path(workdir: Path, path: Path) -> str:
+    """`pkg/sub/mod.py` -> `pkg.sub.mod`; `pkg/sub/__init__.py` -> `pkg.sub`
+    (a package's own dotted name, not `pkg.sub.__init__` — nobody imports
+    the literal `__init__` segment)."""
+    try:
+        rel = path.relative_to(workdir)
+    except ValueError:
+        rel = path
+    parts = list(rel.with_suffix("").parts)
+    if parts and parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def _importer_package(importer_dotted: str, is_init: bool) -> str:
+    """The dotted package a file lives in, for relative-import resolution.
+    A package's own `__init__.py` IS that package (level=1 relative imports
+    inside it resolve against itself); a regular module's package is
+    everything before its last dotted segment."""
+    if is_init:
+        return importer_dotted
+    if "." in importer_dotted:
+        return importer_dotted.rsplit(".", 1)[0]
+    return ""
+
+
+def _resolve_relative_import(importer_package: str, level: int, module: Optional[str]) -> Optional[str]:
+    """Resolve `from . import x` (level=1) / `from .. import x` (level=2) /
+    `from .sub import x` etc. to an absolute dotted module path, given the
+    dotted package the importing file lives in. Returns None if the level
+    walks above the repo root — can't resolve, so it's simply not counted
+    as a reference rather than guessed at."""
+    parts = importer_package.split(".") if importer_package else []
+    strip = level - 1
+    if strip > len(parts):
+        return None
+    base_parts = parts[: len(parts) - strip] if strip else parts
+    base = ".".join(base_parts)
+    if module:
+        return f"{base}.{module}" if base else module
+    return base or None
+
+
+def _top_level_defined_names(tree: Optional[ast.Module]) -> set:
+    """Function/class names (and simple module-level assignments) defined
+    directly in this file — the candidate set a `from target import *` +
+    later `Call`/`Name` usage is checked against."""
+    if tree is None:
+        return set()
+    names = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    names.add(target.id)
+    return names
+
+
+def _python_file_references_target(
+    tree: ast.Module, importer_dotted: str, importer_is_init: bool,
+    target_dotted: str, target_defined_names: set,
+) -> bool:
+    """Does this parsed candidate file actually import `target_dotted` (or a
+    name from it), correctly resolving relative imports? For the one case
+    import resolution alone can't settle — `from target import *` — fall
+    back to walking Call/Name nodes for actual usage of a name the target
+    module defines."""
+    if not target_dotted:
+        return False
+    importer_package = _importer_package(importer_dotted, importer_is_init)
+    star_imported_from_target = False
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                full = alias.name
+                if full == target_dotted or full.startswith(target_dotted + "."):
+                    return True
+        elif isinstance(node, ast.ImportFrom):
+            resolved = (
+                _resolve_relative_import(importer_package, node.level, node.module)
+                if node.level else node.module
+            )
+            if not resolved:
+                continue
+            if resolved == target_dotted or resolved.startswith(target_dotted + "."):
+                for alias in node.names:
+                    if alias.name == "*":
+                        star_imported_from_target = True
+                    else:
+                        return True  # a specifically-named import is direct, unambiguous evidence
+            elif "." in target_dotted and resolved == target_dotted.rsplit(".", 1)[0]:
+                # `from pkg import target_module` — the target itself is the imported name.
+                target_leaf = target_dotted.rsplit(".", 1)[-1]
+                if any(alias.name == target_leaf for alias in node.names):
+                    return True
+
+    if not star_imported_from_target:
+        return False
+    if not target_defined_names:
+        # Star-imported a module with nothing we could identify as a
+        # top-level def/class (e.g. a pure-constants module) — still a real
+        # import, just can't be confirmed by usage, so count it.
+        return True
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in target_defined_names:
+            return True
+        if isinstance(node, ast.Name) and node.id in target_defined_names:
+            return True
+    return False
+
+
+def _blast_radius_python(workdir: Path, changed: str, py_trees: Dict[Path, ast.Module]) -> int:
+    target_path = next((p for p in py_trees if _safe_rel(p, workdir) == changed), None)
+    target_dotted = _module_dotted_path(workdir, workdir / changed)
+    if not target_dotted:
+        return 0
+    target_defined_names = _top_level_defined_names(py_trees.get(target_path)) if target_path else set()
+
+    count = 0
+    for path, tree in py_trees.items():
+        rel = _safe_rel(path, workdir)
+        if rel == changed:
+            continue
+        importer_dotted = _module_dotted_path(workdir, path)
+        importer_is_init = path.name == "__init__.py"
+        if _python_file_references_target(tree, importer_dotted, importer_is_init, target_dotted, target_defined_names):
+            count += 1
+    return count
+
+
+def _safe_rel(path: Path, workdir: Path) -> str:
+    try:
+        return str(path.relative_to(workdir))
+    except ValueError:
+        return str(path)
+
+
+def _blast_radius_text_heuristic(workdir: Path, changed: str, file_texts: Dict[Path, str]) -> int:
+    """Original substring-containment heuristic, kept as-is for non-Python
+    source files (JS/TS): does the changed file's stem or dotted path appear
+    anywhere in another file's raw text. No JS/TS AST parser is available
+    in this codebase, so this stays a heuristic — same deliberate scope
+    limit as `dependency_mapper.py`. A false positive here just means a file
+    gets slightly over-prioritized for review, the safe direction to be
+    wrong in."""
+    stem = Path(changed).stem
+    if not stem or len(stem) < 3:
+        return 0
+    dotted = changed.rsplit(".", 1)[0].replace("/", ".").replace("\\", ".")
+    candidates = {stem, dotted}
+    count = 0
+    for path, text in file_texts.items():
+        if _safe_rel(path, workdir) == changed:
+            continue
+        if any(c and c in text for c in candidates):
+            count += 1
+    return count
+
+
 def compute_blast_radius(workdir: Path, changed_paths: List[str]) -> Dict[str, int]:
-    """Best-effort static reference count: for each changed file, how many
-    *other* files in the repo textually reference it (by dotted module path,
-    relative import path, or bare filename stem). Not symbol-resolution —
-    same deliberate scope limit as dependency_mapper.py. A false positive
-    here just means a file gets slightly over-prioritized for review, which
-    is the safe direction to be wrong in."""
+    """For each changed file, how many *other* files in the repo reference
+    it. Python files get real import-graph resolution (see
+    `_python_file_references_target`); everything else falls back to the
+    original text heuristic (see `_blast_radius_text_heuristic`)."""
     workdir = Path(workdir)
     source_files = _iter_source_files(workdir)
+
+    py_trees: Dict[Path, ast.Module] = {}
     file_texts: Dict[Path, str] = {}
     for f in source_files:
         try:
-            file_texts[f] = f.read_text(encoding="utf-8", errors="ignore")
+            text = f.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
+        file_texts[f] = text
+        if f.suffix == PY_SUFFIX:
+            try:
+                py_trees[f] = ast.parse(text)
+            except (SyntaxError, ValueError):
+                logger.debug("blast radius: skipping unparsable python file %s", f)
 
     radius: Dict[str, int] = {}
     for changed in changed_paths:
-        stem = Path(changed).stem
-        if not stem or stem == "__init__" or len(stem) < 3:
-            radius[changed] = 0
-            continue
-        dotted = changed.rsplit(".", 1)[0].replace("/", ".").replace("\\", ".")
-        candidates = {stem, dotted}
-        count = 0
-        for path, text in file_texts.items():
-            try:
-                rel = str(path.relative_to(workdir))
-            except ValueError:
-                rel = str(path)
-            if rel == changed:
-                continue
-            if any(c and c in text for c in candidates):
-                count += 1
-        radius[changed] = count
+        if changed.endswith(PY_SUFFIX):
+            radius[changed] = _blast_radius_python(workdir, changed, py_trees)
+        else:
+            radius[changed] = _blast_radius_text_heuristic(workdir, changed, file_texts)
     return radius
 
 
@@ -312,10 +506,28 @@ def _dependency_notes_by_file(findings: List[PackageFinding]) -> Dict[str, List[
     return notes
 
 
+def _secret_notes_by_file(findings: List[SecretFinding]) -> Dict[str, List[str]]:
+    """Map a changed file's path -> reason strings for any Secret Leak Gate
+    finding attributed to it. A shipped turn should never carry a `critical`
+    finding (that verdict fails the Verify gate outright in verify/gate.py),
+    so in practice this only ever surfaces `suspicious` matches — the
+    generic credential-shaped-assignment heuristic that's deliberately too
+    false-positive-prone to block a turn on its own, but is exactly the kind
+    of thing a human reviewer should get pointed at rather than have to spot
+    themselves in a wall of diff."""
+    notes: Dict[str, List[str]] = {}
+    for f in findings:
+        if f.verdict != "suspicious":
+            continue
+        notes.setdefault(f.path, []).append(f"possible hardcoded credential ({f.kind}: {f.line_excerpt})")
+    return notes
+
+
 def _score_file(
     path: str, added: int, removed: int, blast_radius: int,
     sensitive_hits: List[str], has_test_delta: bool,
     dependency_notes: Optional[List[str]] = None,
+    secret_notes: Optional[List[str]] = None,
 ) -> FileRisk:
     score = 0
     reasons: List[str] = []
@@ -347,6 +559,10 @@ def _score_file(
         score += 3
         reasons.extend(dependency_notes)
 
+    if secret_notes:
+        score += 3
+        reasons.extend(secret_notes)
+
     level = "high" if score >= 5 else "medium" if score >= 2 else "low"
     return FileRisk(
         path=path, score=score, level=level, reasons=reasons,
@@ -356,7 +572,9 @@ def _score_file(
 
 
 def build_review_brief(
-    workdir: Path, turn: int, diff: str, dependency_findings: Optional[List[PackageFinding]] = None,
+    workdir: Path, turn: int, diff: str,
+    dependency_findings: Optional[List[PackageFinding]] = None,
+    secret_findings: Optional[List[SecretFinding]] = None,
 ) -> ReviewBrief:
     """Top-level entry point. Only meaningful for a turn that already passed
     the Verify gate — call this after `gate.passed`, not before.
@@ -366,7 +584,13 @@ def build_review_brief(
     turn should never carry one — see `_dependency_notes_by_file`): a file
     that adds a newly-registered, unverified dependency scores as risky
     regardless of what the blast-radius/sensitive-path/test-delta heuristics
-    say about it."""
+    say about it.
+
+    `secret_findings` is optional and comes straight from
+    `gate.secret_leak.suspicious` (a shipped turn should never carry a
+    `.critical` finding — see `_secret_notes_by_file`): a file with a
+    credential-shaped assignment scores as risky regardless of what the
+    other heuristics say."""
     workdir = Path(workdir)
     blocks = _parse_changed_files(diff)
     if not blocks:
@@ -380,6 +604,7 @@ def build_review_brief(
         blast_radii = {p: 0 for p in changed_paths}
 
     dep_notes = _dependency_notes_by_file(dependency_findings or [])
+    secret_notes = _secret_notes_by_file(secret_findings or [])
 
     items: List[FileRisk] = []
     for path, block in blocks.items():
@@ -389,6 +614,7 @@ def build_review_brief(
         items.append(_score_file(
             path, added, removed, blast_radii.get(path, 0), sensitive, test_delta,
             dependency_notes=dep_notes.get(path),
+            secret_notes=secret_notes.get(path),
         ))
 
     items.sort(key=lambda i: i.score, reverse=True)

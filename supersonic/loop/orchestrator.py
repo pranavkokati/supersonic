@@ -40,7 +40,8 @@ from supersonic.templates import apply_template
 from supersonic.validate import validate_live_run
 from supersonic.verify.critic import CriticVerdict
 from supersonic.verify.dependency_trust import DependencyTrustVerdict, run_dependency_trust
-from supersonic.verify.gate import GateResult, run_gate
+from supersonic.verify.secret_leak import SecretLeakVerdict, run_secret_leak_gate
+from supersonic.verify.gate import GateResult, build_qa_reprompt, run_gate
 from supersonic.verify.qa import CheckResult
 from supersonic.verify.review_risk import build_review_brief
 from supersonic.verify.syntax_shield import run_syntax_shield
@@ -297,6 +298,7 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                 ctx.dle_stage_event("shield", "skipped", "demo mode")
                 ctx.dle_stage_event("telemetry", "skipped", "demo mode")
                 ctx.dle_stage_event("deptrust", "skipped", "demo mode")
+                ctx.dle_stage_event("secretleak", "skipped", "demo mode")
                 gate = run_gate(workdir, provider=None, goal=goal, diff="", invariants=[], recent_diffs=[], min_signals_pass=secrets.verify_min_signals_pass)
             else:
                 runner = CodingAgentRunner(chosen_agent, secrets)
@@ -439,13 +441,87 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                             dependency_trust=dependency_trust_verdict,
                         )
                     else:
-                        gate = run_gate(
-                            workdir, provider=provider, goal=goal, diff=diff,
-                            invariants=[f"{i.title}: {i.body}" for i in ledger.invariants()],
-                            recent_diffs=recent_diffs, min_signals_pass=secrets.verify_min_signals_pass,
-                            telemetry=telemetry_verdict,
-                            dependency_trust=dependency_trust_verdict,
-                        )
+                        # DLE stage 6 — Secret Leak Gate: scan this turn's added
+                        # diff lines for the structural shape of a real credential
+                        # before paying for the expensive gate. Same one-corrective-
+                        # reprompt-then-fail pattern as Dependency Trust and Syntax
+                        # Shield — a leaked credential is a veto, not a vote.
+                        secret_leak_verdict: Optional[SecretLeakVerdict] = None
+                        if secrets.dle_secret_leak:
+                            ctx.dle_stage_event("secretleak", "running")
+                            try:
+                                secret_leak_verdict = run_secret_leak_gate(workdir, diff)
+                                if secret_leak_verdict.ran and not secret_leak_verdict.ok:
+                                    ctx.agent_line("[secret leak] likely credential detected — issuing one corrective re-prompt")
+                                    corrective_prompt = f"{prompt}\n\n{secret_leak_verdict.reprompt}"
+                                    runner.run(corrective_prompt, workdir, on_line=ctx.agent_line)
+                                    diff = checkpoints.diff_since(last_good)
+                                    secret_leak_verdict = run_secret_leak_gate(workdir, diff)
+                                if secret_leak_verdict.ran:
+                                    if secret_leak_verdict.ok:
+                                        warn = f", {len(secret_leak_verdict.suspicious)} flagged as suspicious" if secret_leak_verdict.suspicious else ""
+                                        ctx.dle_stage_event("secretleak", "pass", f"no unresolved credentials{warn}")
+                                    else:
+                                        bad = ", ".join(f.kind for f in secret_leak_verdict.critical)
+                                        ctx.dle_stage_event("secretleak", "fail", f"unresolved after re-prompt: {bad}")
+                                else:
+                                    ctx.dle_stage_event("secretleak", "skipped", "no credential-shaped values in this turn")
+                            except Exception:
+                                logger.exception("secret leak gate failed unexpectedly, skipping this signal")
+                                secret_leak_verdict = None
+                                ctx.dle_stage_event("secretleak", "skipped", "gate errored, skipped for this turn")
+                        else:
+                            ctx.dle_stage_event("secretleak", "skipped", "disabled in settings")
+
+                        if secret_leak_verdict is not None and secret_leak_verdict.ran and not secret_leak_verdict.ok:
+                            # Still leaking after one corrective re-prompt — skip the
+                            # expensive gate and fail now, the same severity class as
+                            # an unresolved syntax error or a hallucinated dependency.
+                            bad = ", ".join(f.kind for f in secret_leak_verdict.critical)
+                            gate = GateResult(
+                                passed=False,
+                                signals_ran=1,
+                                signals_passed=0,
+                                tests=CheckResult(name="Tests"),
+                                lint=CheckResult(name="Lint/typecheck"),
+                                critic=CriticVerdict(),
+                                thrash=ThrashVerdict(),
+                                summary=f"Secret Leak Gate failed after one auto-corrective re-prompt: {bad}",
+                                dependency_trust=dependency_trust_verdict if dependency_trust_verdict is not None else DependencyTrustVerdict(),
+                                secret_leak=secret_leak_verdict,
+                            )
+                        else:
+                            gate = run_gate(
+                                workdir, provider=provider, goal=goal, diff=diff,
+                                invariants=[f"{i.title}: {i.body}" for i in ledger.invariants()],
+                                recent_diffs=recent_diffs, min_signals_pass=secrets.verify_min_signals_pass,
+                                telemetry=telemetry_verdict,
+                                dependency_trust=dependency_trust_verdict,
+                                secret_leak=secret_leak_verdict,
+                            )
+
+                            # Generalize the "one corrective re-prompt, then
+                            # accept the verdict" pattern to the two Verify
+                            # signals mechanical enough for it to help: a
+                            # failing test or a lint/typecheck error. Skips
+                            # entirely if the gate passed, or if it only
+                            # failed on critic/thrash (judgment calls a
+                            # re-prompt can't reliably fix) — in both cases
+                            # build_qa_reprompt() returns "".
+                            qa_reprompt = build_qa_reprompt(gate)
+                            if qa_reprompt:
+                                ctx.agent_line("[verify gate] fixable test/lint failure detected — issuing one corrective re-prompt")
+                                corrective_prompt = f"{prompt}\n\n{qa_reprompt}"
+                                runner.run(corrective_prompt, workdir, on_line=ctx.agent_line)
+                                diff = checkpoints.diff_since(last_good)
+                                gate = run_gate(
+                                    workdir, provider=provider, goal=goal, diff=diff,
+                                    invariants=[f"{i.title}: {i.body}" for i in ledger.invariants()],
+                                    recent_diffs=recent_diffs, min_signals_pass=secrets.verify_min_signals_pass,
+                                    telemetry=telemetry_verdict,
+                                    dependency_trust=dependency_trust_verdict,
+                                    secret_leak=secret_leak_verdict,
+                                )
 
             recent_diffs.append(diff)
             recent_diffs = recent_diffs[-5:]
@@ -467,7 +543,12 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                 if not demo and secrets.dle_review_risk and diff.strip():
                     try:
                         dep_findings = list(gate.dependency_trust.suspicious) + list(gate.dependency_trust.critical)
-                        brief = build_review_brief(workdir, turn, diff, dependency_findings=dep_findings)
+                        secret_findings = list(gate.secret_leak.suspicious) + list(gate.secret_leak.critical)
+                        brief = build_review_brief(
+                            workdir, turn, diff,
+                            dependency_findings=dep_findings,
+                            secret_findings=secret_findings,
+                        )
                         ctx.review_brief_event(brief)
                         if brief.high_count:
                             ledger.record_decision(

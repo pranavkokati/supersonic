@@ -20,6 +20,21 @@ same non-breaking rule. Unlike the others it doesn't get a fair vote: a
 lookup) fails the gate outright regardless of what the other signals say,
 because a turn that ships a slopsquatting-vulnerable dependency is not a
 "3 of 5 signals passed, good enough" situation.
+
+An OPTIONAL seventh signal — the Secret Leak Gate (`verify/secret_leak.py`)
+— can be passed in via `secret_leak=`, same non-breaking rule and the same
+no-fair-vote treatment as Dependency Trust: a `critical` finding (a real
+credential shape, or a new .env file) fails the turn outright.
+
+`build_qa_reprompt()` generalizes the "one corrective re-prompt, then accept
+the verdict" pattern established by Syntax Shield / Dependency Trust / Secret
+Leak to the two original Verify signals mechanical enough for it to actually
+help: a failing test or a lint/typecheck error. It deliberately does NOT
+cover the critic or thrash signals — those are judgment calls ("does this
+satisfy the goal", "is the agent going in circles"), not a specific bug a
+re-prompt can point at and expect fixed. Callers decide when to use it and
+how many times (this module has no opinion on retry count); the intended
+caller pattern (see `loop/orchestrator.py`) is exactly one retry.
 """
 
 from __future__ import annotations
@@ -32,6 +47,7 @@ from supersonic.providers.base import LLMProvider
 from supersonic.verify.critic import CriticVerdict, judge as critic_judge
 from supersonic.verify.dependency_trust import DependencyTrustVerdict
 from supersonic.verify.qa import CheckResult, run_lint, run_tests
+from supersonic.verify.secret_leak import SecretLeakVerdict
 from supersonic.verify.telemetry_gate import TelemetryVerdict
 from supersonic.verify.thrash import ThrashVerdict, detect as thrash_detect
 
@@ -48,6 +64,7 @@ class GateResult:
     summary: str
     telemetry: TelemetryVerdict = field(default_factory=TelemetryVerdict)
     dependency_trust: DependencyTrustVerdict = field(default_factory=DependencyTrustVerdict)
+    secret_leak: SecretLeakVerdict = field(default_factory=SecretLeakVerdict)
 
     def to_context_block(self) -> str:
         blocks = [
@@ -61,6 +78,8 @@ class GateResult:
             blocks.append(self.telemetry.to_context_block())
         if self.dependency_trust.ran:
             blocks.append(self.dependency_trust.to_context_block())
+        if self.secret_leak.ran:
+            blocks.append(self.secret_leak.to_context_block())
         return "\n\n".join(blocks)
 
     def to_dict(self) -> dict:
@@ -74,6 +93,7 @@ class GateResult:
             "thrashing": self.thrash.thrashing if self.thrash.ran else None,
             "telemetry_passed": self.telemetry.passed if self.telemetry.ran else None,
             "dependency_trust_passed": self.dependency_trust.ok if self.dependency_trust.ran else None,
+            "secret_leak_passed": self.secret_leak.ok if self.secret_leak.ran else None,
             "summary": self.summary,
         }
 
@@ -89,6 +109,7 @@ def run_gate(
     min_signals_pass: int = 3,
     telemetry: Optional[TelemetryVerdict] = None,
     dependency_trust: Optional[DependencyTrustVerdict] = None,
+    secret_leak: Optional[SecretLeakVerdict] = None,
 ) -> GateResult:
     tests = run_tests(workdir)
     lint = run_lint(workdir)
@@ -96,6 +117,7 @@ def run_gate(
     thrash = thrash_detect(diff, recent_diffs)
     telemetry = telemetry if telemetry is not None else TelemetryVerdict()
     dependency_trust = dependency_trust if dependency_trust is not None else DependencyTrustVerdict()
+    secret_leak = secret_leak if secret_leak is not None else SecretLeakVerdict()
 
     signal_status = []
     if tests.ran:
@@ -110,6 +132,8 @@ def run_gate(
         signal_status.append(telemetry.passed)
     if dependency_trust.ran:
         signal_status.append(dependency_trust.ok)
+    if secret_leak.ran:
+        signal_status.append(secret_leak.ok)
 
     signals_ran = len(signal_status)
     signals_passed = sum(1 for s in signal_status if s)
@@ -129,6 +153,11 @@ def run_gate(
         passed = False
         summary = f"Dependency Trust Gate failed: {len(dependency_trust.critical)} nonexistent package(s). " + summary
 
+    # Same treatment for a likely hardcoded credential: not a vote, a veto.
+    if secret_leak.ran and not secret_leak.ok:
+        passed = False
+        summary = f"Secret Leak Gate failed: {len(secret_leak.critical)} likely credential(s) found. " + summary
+
     return GateResult(
         passed=passed,
         signals_ran=signals_ran,
@@ -140,4 +169,29 @@ def run_gate(
         summary=summary,
         telemetry=telemetry,
         dependency_trust=dependency_trust,
+        secret_leak=secret_leak,
     )
+
+
+def build_qa_reprompt(result: GateResult) -> str:
+    """If `result` failed because of a fixable tests/lint signal, build a
+    corrective re-prompt string naming the exact failure output — the exact
+    same shape of fix Syntax Shield/Dependency Trust/Secret Leak already get.
+    Returns "" if the gate passed, or if it failed for reasons this function
+    can't point at anything mechanical for (critic/thrash only) — the caller
+    should just accept the verdict in that case rather than re-prompting
+    blindly."""
+    if result.passed:
+        return ""
+    parts: List[str] = []
+    if result.tests.ran and not result.tests.passed:
+        parts.append(
+            "## Verify gate caught a failing test suite — fix ONLY this, before anything else.\n"
+            f"`{result.tests.command}`\n```\n{result.tests.output[-2000:]}\n```"
+        )
+    if result.lint.ran and not result.lint.passed:
+        parts.append(
+            "## Verify gate caught a lint/typecheck failure — fix ONLY this, before anything else.\n"
+            f"`{result.lint.command}`\n```\n{result.lint.output[-2000:]}\n```"
+        )
+    return "\n\n".join(parts)

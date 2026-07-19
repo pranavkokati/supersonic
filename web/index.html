@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Supersonic — Ships fast, tells you exactly what to check before you trust it</title>
-  <meta name="description" content="Supersonic pairs an autonomous Checkpoint/Verify/Rollback build loop with Review Risk and a Dependency Trust Gate: every shipped turn's changed files are ranked by what to check, and every new dependency is checked against the real registry before it ships." />
+  <meta name="description" content="Supersonic pairs an autonomous Checkpoint/Verify/Rollback build loop with Review Risk, a Dependency Trust Gate, and a Secret Leak Gate: every shipped turn's changed files are ranked by what to check, every new dependency is checked against the real registry, and every diff is scanned for hardcoded credentials before it ships." />
   <meta property="og:title" content="Supersonic" />
-  <meta property="og:description" content="Review Risk ranks what to actually check on every shipped turn. Dependency Trust Gate blocks hallucinated packages before they ship. Checkpoint → Verify → Rollback underneath. One API key. Fully local." />
+  <meta property="og:description" content="Review Risk ranks what to actually check on every shipped turn. Dependency Trust Gate blocks hallucinated packages. Secret Leak Gate catches hardcoded credentials before they ship. Checkpoint → Verify → Rollback underneath. One API key. Fully local." />
   <meta property="og:type" content="website" />
   <meta name="theme-color" content="#fbf9f6" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -76,6 +76,7 @@
               <span>Checkpoint</span><span class="arrow">→</span>
               <span>Agent</span><span class="arrow">→</span>
               <span>Dependency Trust</span><span class="arrow">→</span>
+              <span>Secret Leak</span><span class="arrow">→</span>
               <span>Verify</span><span class="arrow">→</span>
               <span>Ship</span><span class="arrow">→</span>
               <span>Review Risk</span>
@@ -117,7 +118,7 @@
       <section class="wrap">
         <div class="stat-row">
           <div class="stat-card accent">
-            <span class="stat-card-n">6</span>
+            <span class="stat-card-n">7</span>
             <span class="stat-card-l">verify signals per turn</span>
           </div>
           <div class="stat-card">
@@ -168,6 +169,23 @@
             <div class="df-feature-copy">
               <h3>Dependency Trust Gate: hallucinated packages never ship.</h3>
               <p>Every new dependency a turn adds is checked against the real PyPI/npm registry before it ships. A package that doesn't exist fails the turn outright — the exact pattern attackers exploit in "slopsquatting," pre-registering the name an agent is predictably going to hallucinate.</p>
+            </div>
+          </article>
+
+          <article class="df-feature-card">
+            <div class="df-feature-visual df-feature-visual--warm">
+              <div class="df-feature-inner">
+                <ul class="feat-int-list">
+                  <li><strong>AKIA...####</strong><span class="feat-int-bad">AWS KEY</span></li>
+                  <li><strong>.env</strong><span class="feat-int-bad">COMMITTED</span></li>
+                  <li><strong>YOUR_API_KEY_HERE</strong><span class="feat-int-ok">PLACEHOLDER</span></li>
+                </ul>
+                <p class="feat-stat">2×<span>higher secret-leak rate in AI-assisted commits vs. human-only (GitGuardian, 2026)</span></p>
+              </div>
+            </div>
+            <div class="df-feature-copy">
+              <h3>Secret Leak Gate: hardcoded credentials never ship.</h3>
+              <p>Every turn's added diff lines are scanned for the structural shape of a real credential — AWS keys, PEM blocks, GitHub/Slack/Stripe/Anthropic/OpenAI/Google tokens, a new committed .env file. A high-confidence match fails the turn outright, the same severity as a syntax error. Known placeholder conventions are filtered out first, so an .env.example template doesn't trip it on every turn.</p>
             </div>
           </article>
 
@@ -238,19 +256,24 @@
             <p>Newly-added dependencies are verified against the real PyPI/npm registry. A package that doesn't exist fails the turn — one corrective re-prompt, then rollback, before it ever reaches the expensive gate below.</p>
           </article>
           <article class="trust-card">
-            <p class="trust-label">5 · Verify</p>
-            <h3>Six independent signals</h3>
-            <p>Tests, lint/typecheck, an LLM goal-satisfaction critic, a diff-similarity thrash detector, an optional browser telemetry check, and the Dependency Trust result above.</p>
+            <p class="trust-label">5 · Secret Leak</p>
+            <h3>Every diff scanned for hardcoded credentials</h3>
+            <p>Added lines are checked against real credential formats (AWS, GitHub, Slack, Stripe, Anthropic, OpenAI, Google, PEM keys) and new .env files. A high-confidence match fails the turn — one corrective re-prompt, then rollback, same as Dependency Trust.</p>
           </article>
           <article class="trust-card">
-            <p class="trust-label">6 · Rollback or ship</p>
+            <p class="trust-label">6 · Verify</p>
+            <h3>Seven independent signals</h3>
+            <p>Tests, lint/typecheck, an LLM goal-satisfaction critic, a diff-similarity thrash detector, an optional browser telemetry check, and the Dependency Trust and Secret Leak results above.</p>
+          </article>
+          <article class="trust-card">
+            <p class="trust-label">7 · Rollback or ship</p>
             <h3>Only proven progress sticks</h3>
             <p>Pass → new checkpoint, pushed to GitHub. Fail → hard reset to the last good state, failure logged to the Continuity Graph.</p>
           </article>
           <article class="trust-card">
-            <p class="trust-label">7 · Review Risk</p>
+            <p class="trust-label">8 · Review Risk</p>
             <h3>Told what to actually check</h3>
-            <p>Every shipped turn's changed files ranked by blast radius, sensitive-path exposure, and missing test coverage — a static heuristic, not another LLM call, so it's instant.</p>
+            <p>Every shipped turn's changed files ranked by blast radius, sensitive-path exposure, missing test coverage, unverified dependencies, and suspicious credential-shaped assignments — a static heuristic, not another LLM call, so it's instant.</p>
           </article>
           <article class="trust-card">
             <p class="trust-label">Local UI</p>
@@ -307,6 +330,7 @@ sonic doctor</pre>
         <div class="differentiator-row" id="stack">
           <span class="differentiator-pill">Review Risk</span>
           <span class="differentiator-pill">Dependency Trust Gate</span>
+          <span class="differentiator-pill">Secret Leak Gate</span>
           <span class="differentiator-pill">Checkpoint / Verify / Rollback</span>
           <span class="differentiator-pill">Continuity Graph</span>
           <span class="differentiator-pill">Provider-agnostic</span>
@@ -324,6 +348,10 @@ sonic doctor</pre>
           <details class="faq-item">
             <summary>What is the Dependency Trust Gate?</summary>
             <p>A pre-flight check that runs before the expensive Verify gate. It reads the turn's diff for any newly-added package (manifest entries in requirements.txt/pyproject.toml/Pipfile/package.json, or a raw install-command line), and checks each one against the real PyPI or npm registry. A package that doesn't exist fails the turn outright — that's "slopsquatting": an attacker pre-registers a name an AI agent is statistically likely to hallucinate, ships malware under it, and waits. It can't stop a malicious install from executing once inside a single turn's working tree (Supersonic doesn't sandbox the coding agent's own shell commands), but it guarantees that dependency never gets checkpointed, shipped, or pushed to GitHub — and the agent gets one corrective re-prompt naming the exact bad package first.</p>
+          </details>
+          <details class="faq-item">
+            <summary>What is the Secret Leak Gate?</summary>
+            <p>A pre-flight check, same family as Syntax Shield and the Dependency Trust Gate, that runs before the expensive Verify gate. It scans only the <em>added</em> lines of a turn's diff for the structural shape of a real credential: AWS access key IDs, PEM private key blocks, GitHub/Slack/Stripe/Anthropic/OpenAI/Google token formats, and Slack webhook URLs. A match on any of those formats is specific enough to be a real secret, not a coincidence, and fails the turn outright — one corrective re-prompt naming the exact file and pattern, then rollback if it's still there. A new or modified real <code>.env</code> file (not <code>.env.example</code>) is flagged the same way regardless of content. A separate, noisier heuristic — a variable name like <code>api_key</code> or <code>password</code> assigned a long opaque string — is surfaced in the Review Brief instead of blocking, since it's prone to false positives on things like test fixture IDs. GitGuardian's State of Secrets Sprawl 2026 report found AI-assisted commits leak a real secret at roughly double the rate of human-only commits (~3.2% vs. ~1.6%), and that 64% of secrets confirmed valid in 2022 were still exploitable in January 2026 because nobody rotated them — this gate exists to stop that pattern before it starts.</p>
           </details>
           <details class="faq-item">
             <summary>Is this hosted?</summary>
