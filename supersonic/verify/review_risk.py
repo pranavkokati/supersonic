@@ -76,6 +76,7 @@ from typing import Dict, List, Optional
 
 from supersonic.verify.dependency_trust import PackageFinding
 from supersonic.verify.secret_leak import SecretFinding
+from supersonic.verify.test_quality import MutationFinding
 
 logger = logging.getLogger(__name__)
 
@@ -523,11 +524,29 @@ def _secret_notes_by_file(findings: List[SecretFinding]) -> Dict[str, List[str]]
     return notes
 
 
+def _test_quality_notes_by_file(findings: List[MutationFinding]) -> Dict[str, List[str]]:
+    """Map a changed file's path -> reason strings for any Test Quality Gate
+    survivor attributed to it. Every entry here is, by definition, a mutant
+    the test suite did NOT catch — a function whose tests pass but don't
+    actually verify the behavior they claim to. Unlike Dependency Trust and
+    Secret Leak this never fails the Verify gate outright (see gate.py's
+    fair-vote treatment of `test_quality`), so a turn carrying one of these
+    is exactly the profile Review Risk exists for: it passed everything, and
+    still deserves a close look."""
+    notes: Dict[str, List[str]] = {}
+    for f in findings:
+        if not f.survived:
+            continue
+        notes.setdefault(f.path, []).append(f"weak test coverage in {f.function}() — a mutant ({f.mutation}) wasn't caught")
+    return notes
+
+
 def _score_file(
     path: str, added: int, removed: int, blast_radius: int,
     sensitive_hits: List[str], has_test_delta: bool,
     dependency_notes: Optional[List[str]] = None,
     secret_notes: Optional[List[str]] = None,
+    test_quality_notes: Optional[List[str]] = None,
 ) -> FileRisk:
     score = 0
     reasons: List[str] = []
@@ -563,6 +582,10 @@ def _score_file(
         score += 3
         reasons.extend(secret_notes)
 
+    if test_quality_notes:
+        score += 2
+        reasons.extend(test_quality_notes)
+
     level = "high" if score >= 5 else "medium" if score >= 2 else "low"
     return FileRisk(
         path=path, score=score, level=level, reasons=reasons,
@@ -575,6 +598,7 @@ def build_review_brief(
     workdir: Path, turn: int, diff: str,
     dependency_findings: Optional[List[PackageFinding]] = None,
     secret_findings: Optional[List[SecretFinding]] = None,
+    test_quality_findings: Optional[List[MutationFinding]] = None,
 ) -> ReviewBrief:
     """Top-level entry point. Only meaningful for a turn that already passed
     the Verify gate — call this after `gate.passed`, not before.
@@ -590,7 +614,13 @@ def build_review_brief(
     `gate.secret_leak.suspicious` (a shipped turn should never carry a
     `.critical` finding — see `_secret_notes_by_file`): a file with a
     credential-shaped assignment scores as risky regardless of what the
-    other heuristics say."""
+    other heuristics say.
+
+    `test_quality_findings` is optional and comes straight from
+    `gate.test_quality.survivors` (see `_test_quality_notes_by_file`): a file
+    whose tests didn't catch a mutation of their own logic scores as risky —
+    this is the one signal here that can attach to a file that otherwise
+    looks completely clean by every other heuristic."""
     workdir = Path(workdir)
     blocks = _parse_changed_files(diff)
     if not blocks:
@@ -605,6 +635,7 @@ def build_review_brief(
 
     dep_notes = _dependency_notes_by_file(dependency_findings or [])
     secret_notes = _secret_notes_by_file(secret_findings or [])
+    tq_notes = _test_quality_notes_by_file(test_quality_findings or [])
 
     items: List[FileRisk] = []
     for path, block in blocks.items():
@@ -615,6 +646,7 @@ def build_review_brief(
             path, added, removed, blast_radii.get(path, 0), sensitive, test_delta,
             dependency_notes=dep_notes.get(path),
             secret_notes=secret_notes.get(path),
+            test_quality_notes=tq_notes.get(path),
         ))
 
     items.sort(key=lambda i: i.score, reverse=True)

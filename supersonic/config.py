@@ -104,6 +104,20 @@ class UserSecrets(BaseModel):
     # roughly double the rate of human-only commits (GitGuardian, 2026); this
     # is the mitigation for that specific, measured risk. On by default.
     dle_secret_leak: bool = True
+    # Test Quality Gate: after a turn's real tests pass, run a small, bounded
+    # set of AST-level mutations (comparison/boolean/constant flips) scoped
+    # only to the functions this turn touched, and re-run the suite against
+    # each one. A mutant the suite doesn't catch is a test that passes but
+    # doesn't actually verify the behavior it claims to — a failure mode
+    # "tests: PASS" cannot see by definition. Soft signal (participates in
+    # the normal N-of-M vote, does not hard-fail a turn on its own, since a
+    # surviving mutant is evidence of a weak test, not proof of a bug). On
+    # by default.
+    dle_test_quality: bool = True
+    # Fraction of generated mutants a touched function's tests must kill for
+    # Test Quality to count as passed for that turn. Floored/ceilinged to a
+    # valid probability.
+    test_quality_min_kill_rate: float = Field(default=0.7, ge=0.0, le=1.0)
 
     model_config = ConfigDict(extra="ignore")
 

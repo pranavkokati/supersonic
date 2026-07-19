@@ -26,6 +26,13 @@ An OPTIONAL seventh signal — the Secret Leak Gate (`verify/secret_leak.py`)
 no-fair-vote treatment as Dependency Trust: a `critical` finding (a real
 credential shape, or a new .env file) fails the turn outright.
 
+An OPTIONAL eighth signal — the Test Quality Gate (`verify/test_quality.py`)
+— can be passed in via `test_quality=`, same non-breaking rule, but back to
+the *fair-vote* treatment (like telemetry): a surviving mutant is evidence a
+touched function's tests are weaker than they look, not proof of a bug, so
+it participates in the normal N-of-M count instead of failing the turn
+outright.
+
 `build_qa_reprompt()` generalizes the "one corrective re-prompt, then accept
 the verdict" pattern established by Syntax Shield / Dependency Trust / Secret
 Leak to the two original Verify signals mechanical enough for it to actually
@@ -49,6 +56,7 @@ from supersonic.verify.dependency_trust import DependencyTrustVerdict
 from supersonic.verify.qa import CheckResult, run_lint, run_tests
 from supersonic.verify.secret_leak import SecretLeakVerdict
 from supersonic.verify.telemetry_gate import TelemetryVerdict
+from supersonic.verify.test_quality import TestQualityVerdict
 from supersonic.verify.thrash import ThrashVerdict, detect as thrash_detect
 
 
@@ -65,6 +73,7 @@ class GateResult:
     telemetry: TelemetryVerdict = field(default_factory=TelemetryVerdict)
     dependency_trust: DependencyTrustVerdict = field(default_factory=DependencyTrustVerdict)
     secret_leak: SecretLeakVerdict = field(default_factory=SecretLeakVerdict)
+    test_quality: TestQualityVerdict = field(default_factory=TestQualityVerdict)
 
     def to_context_block(self) -> str:
         blocks = [
@@ -80,6 +89,8 @@ class GateResult:
             blocks.append(self.dependency_trust.to_context_block())
         if self.secret_leak.ran:
             blocks.append(self.secret_leak.to_context_block())
+        if self.test_quality.ran:
+            blocks.append(self.test_quality.to_context_block())
         return "\n\n".join(blocks)
 
     def to_dict(self) -> dict:
@@ -94,6 +105,7 @@ class GateResult:
             "telemetry_passed": self.telemetry.passed if self.telemetry.ran else None,
             "dependency_trust_passed": self.dependency_trust.ok if self.dependency_trust.ran else None,
             "secret_leak_passed": self.secret_leak.ok if self.secret_leak.ran else None,
+            "test_quality_passed": self.test_quality.passed if self.test_quality.ran else None,
             "summary": self.summary,
         }
 
@@ -110,6 +122,7 @@ def run_gate(
     telemetry: Optional[TelemetryVerdict] = None,
     dependency_trust: Optional[DependencyTrustVerdict] = None,
     secret_leak: Optional[SecretLeakVerdict] = None,
+    test_quality: Optional[TestQualityVerdict] = None,
 ) -> GateResult:
     tests = run_tests(workdir)
     lint = run_lint(workdir)
@@ -118,6 +131,7 @@ def run_gate(
     telemetry = telemetry if telemetry is not None else TelemetryVerdict()
     dependency_trust = dependency_trust if dependency_trust is not None else DependencyTrustVerdict()
     secret_leak = secret_leak if secret_leak is not None else SecretLeakVerdict()
+    test_quality = test_quality if test_quality is not None else TestQualityVerdict()
 
     signal_status = []
     if tests.ran:
@@ -134,6 +148,8 @@ def run_gate(
         signal_status.append(dependency_trust.ok)
     if secret_leak.ran:
         signal_status.append(secret_leak.ok)
+    if test_quality.ran:
+        signal_status.append(test_quality.passed)
 
     signals_ran = len(signal_status)
     signals_passed = sum(1 for s in signal_status if s)
@@ -170,6 +186,7 @@ def run_gate(
         telemetry=telemetry,
         dependency_trust=dependency_trust,
         secret_leak=secret_leak,
+        test_quality=test_quality,
     )
 
 

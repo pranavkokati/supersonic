@@ -42,10 +42,11 @@ from supersonic.verify.critic import CriticVerdict
 from supersonic.verify.dependency_trust import DependencyTrustVerdict, run_dependency_trust
 from supersonic.verify.secret_leak import SecretLeakVerdict, run_secret_leak_gate
 from supersonic.verify.gate import GateResult, build_qa_reprompt, run_gate
-from supersonic.verify.qa import CheckResult
+from supersonic.verify.qa import CheckResult, run_tests
 from supersonic.verify.review_risk import build_review_brief
 from supersonic.verify.syntax_shield import run_syntax_shield
 from supersonic.verify.telemetry_gate import TelemetryVerdict, run_telemetry_gate
+from supersonic.verify.test_quality import TestQualityVerdict, run_test_quality_gate
 from supersonic.verify.thrash import ThrashVerdict
 from supersonic.webhooks import fire_webhook
 from supersonic.workdir import workdir_summary
@@ -299,6 +300,7 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                 ctx.dle_stage_event("telemetry", "skipped", "demo mode")
                 ctx.dle_stage_event("deptrust", "skipped", "demo mode")
                 ctx.dle_stage_event("secretleak", "skipped", "demo mode")
+                ctx.dle_stage_event("testquality", "skipped", "demo mode")
                 gate = run_gate(workdir, provider=None, goal=goal, diff="", invariants=[], recent_diffs=[], min_signals_pass=secrets.verify_min_signals_pass)
             else:
                 runner = CodingAgentRunner(chosen_agent, secrets)
@@ -491,6 +493,44 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                                 secret_leak=secret_leak_verdict,
                             )
                         else:
+                            # DLE stage 7 — Test Quality Gate: only meaningful
+                            # once the real tests are known to pass (a mutant
+                            # "surviving" against an already-broken suite is
+                            # noise, not a finding), so check that first with
+                            # a direct, cheap run_tests() call before paying
+                            # for the mutation pass itself.
+                            test_quality_verdict: Optional[TestQualityVerdict] = None
+                            if secrets.dle_test_quality:
+                                ctx.dle_stage_event("testquality", "running")
+                                try:
+                                    baseline_tests = run_tests(workdir)
+                                    if baseline_tests.ran and baseline_tests.passed:
+                                        test_quality_verdict = run_test_quality_gate(
+                                            workdir, diff, min_kill_rate=secrets.test_quality_min_kill_rate,
+                                        )
+                                        if test_quality_verdict.ran:
+                                            if test_quality_verdict.passed:
+                                                ctx.dle_stage_event(
+                                                    "testquality", "pass",
+                                                    f"{test_quality_verdict.mutants_killed}/{test_quality_verdict.mutants_generated} mutants killed",
+                                                )
+                                            else:
+                                                weak = ", ".join(s.function for s in test_quality_verdict.survivors[:3])
+                                                ctx.dle_stage_event("testquality", "fail", f"weak test coverage: {weak}")
+                                        else:
+                                            ctx.dle_stage_event(
+                                                "testquality", "skipped",
+                                                test_quality_verdict.skipped_reason or "nothing to mutate this turn",
+                                            )
+                                    else:
+                                        ctx.dle_stage_event("testquality", "skipped", "no passing test suite to mutate against")
+                                except Exception:
+                                    logger.exception("test quality gate failed unexpectedly, skipping this signal")
+                                    test_quality_verdict = None
+                                    ctx.dle_stage_event("testquality", "skipped", "gate errored, skipped for this turn")
+                            else:
+                                ctx.dle_stage_event("testquality", "skipped", "disabled in settings")
+
                             gate = run_gate(
                                 workdir, provider=provider, goal=goal, diff=diff,
                                 invariants=[f"{i.title}: {i.body}" for i in ledger.invariants()],
@@ -498,6 +538,7 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                                 telemetry=telemetry_verdict,
                                 dependency_trust=dependency_trust_verdict,
                                 secret_leak=secret_leak_verdict,
+                                test_quality=test_quality_verdict,
                             )
 
                             # Generalize the "one corrective re-prompt, then
@@ -544,10 +585,12 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                     try:
                         dep_findings = list(gate.dependency_trust.suspicious) + list(gate.dependency_trust.critical)
                         secret_findings = list(gate.secret_leak.suspicious) + list(gate.secret_leak.critical)
+                        test_quality_findings = list(gate.test_quality.survivors)
                         brief = build_review_brief(
                             workdir, turn, diff,
                             dependency_findings=dep_findings,
                             secret_findings=secret_findings,
+                            test_quality_findings=test_quality_findings,
                         )
                         ctx.review_brief_event(brief)
                         if brief.high_count:

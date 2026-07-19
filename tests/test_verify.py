@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from supersonic.store import create_project, enqueue_project, init_db, list_queue, portfolio_summary
 from supersonic.templates import apply_template, list_templates
 from supersonic.verify.critic import CriticVerdict
 from supersonic.verify.gate import GateResult, build_qa_reprompt, run_gate
 from supersonic.verify.qa import CheckResult, run_tests
+from supersonic.verify.test_quality import TestQualityVerdict
 from supersonic.verify.thrash import ThrashVerdict as _ThrashVerdict
 from supersonic.verify.telemetry_gate import TelemetryVerdict
 from supersonic.verify.thrash import detect
@@ -155,6 +158,44 @@ def test_build_qa_reprompt_combines_both_tests_and_lint_when_both_fail():
     reprompt = build_qa_reprompt(gate)
     assert "failing test suite" in reprompt
     assert "lint/typecheck failure" in reprompt
+
+
+def test_run_gate_backward_compatible_when_test_quality_not_passed(tmp_path):
+    # Every caller that predates this signal never passes test_quality= at
+    # all; this must behave exactly as before it existed.
+    gate = run_gate(
+        tmp_path, provider=None, goal="test", diff="", invariants=[], recent_diffs=[], min_signals_pass=3,
+    )
+    assert gate.test_quality.ran is False
+
+
+def test_run_gate_counts_test_quality_as_a_fair_vote_not_a_veto():
+    # A surviving mutant is weak evidence, not proof of a bug — it must
+    # participate in the normal N-of-M vote like telemetry, never hard-fail
+    # the turn outright the way Dependency Trust / Secret Leak do.
+    weak_test_quality = TestQualityVerdict(ran=True, passed=False, mutants_generated=2, mutants_killed=0)
+    gate = run_gate(
+        Path("/tmp/does-not-matter"),
+        provider=None, goal="test", diff="", invariants=[], recent_diffs=[],
+        min_signals_pass=1, test_quality=weak_test_quality,
+    )
+    assert gate.signals_ran == 1
+    assert gate.signals_passed == 0
+    assert gate.passed is False
+    # Critically: no forced-fail summary override language, unlike Dependency
+    # Trust / Secret Leak — it lost the vote fairly, it wasn't vetoed.
+    assert "Test Quality Gate failed" not in gate.summary
+
+
+def test_run_gate_passes_when_test_quality_ok():
+    good_test_quality = TestQualityVerdict(ran=True, passed=True, mutants_generated=2, mutants_killed=2)
+    gate = run_gate(
+        Path("/tmp/does-not-matter"),
+        provider=None, goal="test", diff="", invariants=[], recent_diffs=[],
+        min_signals_pass=1, test_quality=good_test_quality,
+    )
+    assert gate.passed is True
+    assert gate.to_dict()["test_quality_passed"] is True
 
 
 def test_webhook_sign():

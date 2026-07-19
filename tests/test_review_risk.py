@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from supersonic.verify.dependency_trust import PackageFinding
 from supersonic.verify.secret_leak import SecretFinding
+from supersonic.verify.test_quality import MutationFinding
 from supersonic.verify.review_risk import (
     build_review_brief,
     compute_blast_radius,
@@ -14,6 +15,7 @@ from supersonic.verify.review_risk import (
     _score_file,
     _secret_notes_by_file,
     _sensitive_hits,
+    _test_quality_notes_by_file,
 )
 
 _TWO_FILE_DIFF = """diff --git a/app/auth/session.py b/app/auth/session.py
@@ -280,3 +282,34 @@ index 333..444 100644
     brief = build_review_brief(tmp_path, turn=1, diff=css_only_diff, secret_findings=[finding])
     assert brief.items[0].level in ("medium", "high")
     assert any("possible hardcoded credential" in r for r in brief.items[0].reasons)
+
+
+def test_test_quality_notes_by_file_maps_surviving_mutant_to_its_path():
+    finding = MutationFinding(path="pkg/util.py", function="is_even", mutation="Eq -> NotEq", survived=True)
+    notes = _test_quality_notes_by_file([finding])
+    assert "pkg/util.py" in notes
+    assert "weak test coverage in is_even()" in notes["pkg/util.py"][0]
+
+
+def test_test_quality_notes_by_file_ignores_killed_mutants():
+    finding = MutationFinding(path="pkg/util.py", function="is_even", mutation="Eq -> NotEq", survived=False)
+    assert _test_quality_notes_by_file([finding]) == {}
+
+
+def test_build_review_brief_test_quality_finding_forces_css_file_to_score_high(tmp_path):
+    # Same shape as the dependency/secret tests above: a CSS-only diff
+    # normally scores "low"; attributing a surviving mutant to that same
+    # file must push it up — this is the one signal that can flag a file
+    # that otherwise looks completely clean.
+    css_only_diff = """diff --git a/app/styles/theme.css b/app/styles/theme.css
+index 333..444 100644
+--- a/app/styles/theme.css
++++ b/app/styles/theme.css
+@@ -1,1 +1,2 @@
+ body { color: black; }
++.btn { color: blue; }
+"""
+    finding = MutationFinding(path="app/styles/theme.css", function="paint", mutation="True -> False", survived=True)
+    brief = build_review_brief(tmp_path, turn=1, diff=css_only_diff, test_quality_findings=[finding])
+    assert brief.items[0].level in ("medium", "high")
+    assert any("weak test coverage" in r for r in brief.items[0].reasons)
