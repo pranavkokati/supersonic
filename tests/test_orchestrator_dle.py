@@ -74,7 +74,7 @@ def test_non_demo_turn_uses_dependency_mapper_and_syntax_shield(tmp_path, monkey
 
     dependency_mapper_calls = []
 
-    def fake_agent_run(self, prompt, wd, on_line=None):
+    def fake_agent_run(self, prompt, wd, on_line=None, model=None):
         (Path(wd) / "invoice.py").write_text("def charge():\n    return 1\n")
         if on_line:
             on_line("wrote invoice.py")

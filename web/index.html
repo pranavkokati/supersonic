@@ -83,6 +83,7 @@
               <span>Ship</span><span class="arrow">→</span>
               <span>Review Risk</span>
             </div>
+            <p class="pipeline-flow-note">A HIGH-risk file in Review Risk escalates the model for Build + Verify on the very next turn — then decays back.</p>
           </div>
           <div class="hero-df-visual">
             <div class="ship-card">
@@ -228,6 +229,23 @@
           <article class="df-feature-card">
             <div class="df-feature-visual df-feature-visual--blue">
               <div class="df-feature-inner">
+                <ul class="feat-int-list">
+                  <li><strong>Turn 6</strong><span class="feat-int-bad">HIGH risk shipped</span></li>
+                  <li><strong>Turn 7 agent</strong><span class="feat-int-warn">sonnet → opus</span></li>
+                  <li><strong>Turn 8 agent</strong><span class="feat-int-ok">back to default</span></li>
+                </ul>
+                <p class="feat-stat">1 turn<span>the exact window a stronger model runs — no standing cost increase</span></p>
+              </div>
+            </div>
+            <div class="df-feature-copy">
+              <h3>Risk-Aware Model Escalation: pay for a stronger model only when it just mattered.</h3>
+              <p>If a shipped turn's Review Risk brief flags a HIGH-risk file, the next turn — Build and Supersonic's own critic call — automatically runs at a stronger, explicitly configured model, using each coding agent's real <code>--model</code>/<code>-m</code> flag. It decays back to the default the turn after, so a risky auth-path change gets a second, sharper pair of eyes without paying premium-model cost on every routine turn.</p>
+            </div>
+          </article>
+
+          <article class="df-feature-card">
+            <div class="df-feature-visual df-feature-visual--blue">
+              <div class="df-feature-inner">
                 <ul class="feat-stack">
                   <li>Tests</li>
                   <li>Lint / typecheck</li>
@@ -322,6 +340,11 @@
             <p>Every shipped turn's changed files ranked by blast radius, sensitive-path exposure, missing test coverage, unverified dependencies, and suspicious credential-shaped assignments — a static heuristic, not another LLM call, so it's instant.</p>
           </article>
           <article class="trust-card">
+            <p class="trust-label">↻ · Escalation</p>
+            <h3>A HIGH-risk turn upgrades the next one</h3>
+            <p>Review Risk flagging a HIGH file feeds back into Build and Verify: the very next turn runs at the stronger model you've configured for that coding agent and for the critic, then falls back to the default the turn after. Cross-turn, not a stage — it never fires with no risky-file history, and it never overrides a model you haven't opted in.</p>
+          </article>
+          <article class="trust-card">
             <p class="trust-label">Local UI</p>
             <h3>Manage projects locally</h3>
             <p><code>sonic serve</code> at localhost — keys in <code>~/.supersonic/</code> only.</p>
@@ -379,6 +402,7 @@ sonic doctor</pre>
           <span class="differentiator-pill">Secret Leak Gate</span>
           <span class="differentiator-pill">Test Quality Gate</span>
           <span class="differentiator-pill">Signed Turn Receipts</span>
+          <span class="differentiator-pill">Risk-Aware Model Escalation</span>
           <span class="differentiator-pill">Checkpoint / Verify / Rollback</span>
           <span class="differentiator-pill">Continuity Graph</span>
           <span class="differentiator-pill">Provider-agnostic</span>
@@ -408,6 +432,10 @@ sonic doctor</pre>
           <details class="faq-item">
             <summary>What are Signed Turn Receipts?</summary>
             <p>An Ed25519-signed JSON attestation, written for every turn that ships, to <code>.supersonic/receipts/turn-&lt;n&gt;.json</code> — in the same git commit as the checkpoint it describes. It records a SHA-256 hash of the literal prompt sent to the coding agent (including whichever corrective re-prompt, if any, actually produced the shipped diff), a SHA-256 hash of the diff itself, a files/insertions/deletions stat, which LLM provider/model Supersonic's own loop used that turn, which coding-agent CLI wrote the diff, and the full Verify gate verdict — every signal, not just pass/fail. The private signing key is generated once per machine, lives at <code>~/.supersonic/keys/</code>, and never leaves it; the public key travels inside every receipt, so <code>sonic verify-receipts &lt;path&gt;</code> can check one from any checkout — a teammate's clone, CI, an old backup — with zero setup. What it proves is narrower than a Sigstore-style attestation: not that the prompt itself wasn't misleading, but that the receipt file, byte for byte, was produced by a specific local install and hasn't been edited since. Hand-edit a shipped receipt, or the diff around it, without the private key, and the signature stops verifying. Not a Verify signal — like Review Risk, it never blocks a turn.</p>
+          </details>
+          <details class="faq-item">
+            <summary>What is Risk-Aware Model Escalation?</summary>
+            <p>A feedback loop from Review Risk back into Build and Verify, not a new gate. After a turn ships, if its Review Risk brief contains at least one HIGH-risk file (large blast radius, a sensitive-path match, or no matching test change), the <em>next</em> turn — and only that one — runs the coding-agent CLI and Supersonic's own critic call at a stronger model. Each coding agent gets its own configured escalation target (a verified flag: <code>--model</code> for Claude Code/Codex/OpenCode/Aider, <code>--model</code> for Cursor Agent's CLI), and the critic call uses your provider's own default (strongest) model instead of its normal fast model. It decays automatically the turn after — there's no standing state, just "was the immediately preceding turn's shipped diff flagged high-risk." If you haven't configured an escalation model for the agent you're using, or the previous turn had no high-risk files, nothing changes and the loop runs at its normal cost.</p>
           </details>
           <details class="faq-item">
             <summary>Is this hosted?</summary>

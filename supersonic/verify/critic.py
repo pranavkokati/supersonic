@@ -34,7 +34,12 @@ class CriticVerdict:
         return "\n".join(lines)
 
 
-def judge(provider: Optional[LLMProvider], *, goal: str, diff: str, invariants: List[str]) -> CriticVerdict:
+def judge(
+    provider: Optional[LLMProvider], *, goal: str, diff: str, invariants: List[str], model: Optional[str] = None,
+) -> CriticVerdict:
+    """`model`, when set, overrides the usual fast_model/default_model choice
+    below — Risk-Aware Model Escalation's lever on Supersonic's own judgment
+    call (see config.py's dle_risk_escalation and loop/orchestrator.py)."""
     if provider is None:
         return CriticVerdict(ran=False)
     if not diff.strip():
@@ -62,7 +67,7 @@ Judge this diff against the goal above. Return JSON only:
                 ),
                 Message(role="user", content=prompt),
             ],
-            model=provider.fast_model or provider.default_model,
+            model=model or provider.fast_model or provider.default_model,
             max_tokens=350,
             temperature=0.0,
             json_mode=True,

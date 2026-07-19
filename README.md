@@ -57,6 +57,15 @@ around three specific answers to those problems:
   itself. Not a Verify signal; it never blocks a turn, it's a reproducibility record for one that already
   shipped. See `supersonic/verify/receipts.py`.
 
+- **Risk-Aware Model Escalation.** When a shipped turn's Review Risk brief flags a HIGH-risk file (large blast
+  radius, a sensitive-path match, or no matching test change), the *next* turn — and only the next turn —
+  automatically runs at a stronger model, both for the coding-agent CLI itself (a verified `--model`/`-m` flag
+  for Claude Code, Codex, OpenCode, Cursor Agent, or Aider) and for Supersonic's own critic call. It decays
+  back to the default model the turn after, so routine turns stay fast and cheap and only the turns that just
+  touched risky territory pay for the stronger model. Off by default with no risky-file history, and it never
+  overrides a model you haven't explicitly configured for escalation — see `supersonic/loop/orchestrator.py`
+  and the "Risk-aware model escalation" settings card in the dashboard.
+
 - **Continuity Graph, not a truncated transcript.** Instead of compressing a flat context blob down to fit a
   token budget, Supersonic keeps an append-only, git-committed ledger of structured facts — decisions,
   invariants, failures, and distilled lessons. Each turn retrieves only what's relevant to its goal, with
@@ -122,6 +131,11 @@ generated them required.
 
 The loop stops when the planner marks the build genuinely complete *and* the latest verification passed. The
 configured `max_turn_budget` remains a hard ceiling regardless.
+
+**Risk-aware model escalation** is a feedback loop across this table, not a stage in it: if a shipped turn's
+Review Risk output has at least one HIGH-risk file, the *Build* and *Verify* stages of the very next turn run
+at the stronger model configured for that coding agent (and for the critic), then fall back to the default the
+turn after.
 
 ## Project layout
 

@@ -98,3 +98,38 @@ def test_diff_since_reflects_uncommitted_changes(tmp_path):
 
     diff = mgr.diff_since(cp)
     assert "v2" in diff
+
+
+def test_diff_since_includes_brand_new_untracked_files(tmp_path):
+    """Regression test for a real bug: plain `git diff <commit>` is silent
+    about files that are new and never staged — it only shows changes to
+    files already in the index. That's the single most common shape of
+    change in this product (turn 1 of every build is close to 100% new
+    files), so every diff-based Verify signal would have silently seen an
+    empty diff on exactly those turns without staging first. See
+    CheckpointManager.diff_since's docstring for the full explanation."""
+    mgr = CheckpointManager(tmp_path)
+    cp = mgr.create(1, "empty turn 1")
+
+    (tmp_path / "brand_new_module.py").write_text("def handler():\n    return 42\n")
+
+    diff = mgr.diff_since(cp)
+    assert "brand_new_module.py" in diff
+    assert "handler" in diff
+
+
+def test_diff_since_staging_does_not_commit(tmp_path):
+    """diff_since() must be a read-only preview — it may stage files (git
+    add) to make the diff complete, but it must never create a commit."""
+    mgr = CheckpointManager(tmp_path)
+    cp = mgr.create(1, "turn 1")
+    before = run_git(["rev-parse", "HEAD"], tmp_path).stdout.strip()
+
+    (tmp_path / "new_file.py").write_text("x = 1\n")
+    mgr.diff_since(cp)
+
+    after = run_git(["rev-parse", "HEAD"], tmp_path).stdout.strip()
+    assert before == after
+    # The file is staged (that's how the diff sees it) but still uncommitted.
+    status = run_git(["status", "--short"], tmp_path).stdout
+    assert "A  new_file.py" in status

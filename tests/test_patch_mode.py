@@ -34,8 +34,9 @@ class _FakeRunner:
         self._results = list(results)
         self.calls = 0
 
-    def run(self, prompt, workdir, on_line=None):
+    def run(self, prompt, workdir, on_line=None, model=None):
         self.calls += 1
+        self.last_model = model
         return self._results.pop(0)
 
 

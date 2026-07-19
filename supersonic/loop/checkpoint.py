@@ -108,7 +108,25 @@ class CheckpointManager:
         return out
 
     def diff_since(self, checkpoint: Optional[Checkpoint]) -> str:
-        args = ["diff"]
+        """Everything that's changed in the working tree since `checkpoint`,
+        including brand-new files.
+
+        Plain `git diff <commit>` only shows changes to files already in the
+        index — a file the coding agent just created is untracked, and git
+        diff is silent about untracked files by design (confirmed: `git
+        status --short` shows `?? new.txt` while `git diff HEAD` shows
+        nothing for the same file). That's the single most common shape of
+        change in this product — turn 1 of every build is close to 100% new
+        files, and later turns routinely add whole new modules — so every
+        diff-based Verify signal (Syntax Shield, Dependency Trust, Secret
+        Leak, Test Quality, the critic, the thrash detector) and Review Risk
+        would silently see an empty diff on exactly those turns without this
+        fix. `git add -A` first (safe: staging isn't committing, and
+        `create()` above does the identical `git add -A` immediately before
+        every checkpoint commit anyway) so `--cached` diff reflects the
+        entire working tree, new files included."""
+        run_git(["add", "-A"], self.workdir, check=False)
+        args = ["diff", "--cached"]
         if checkpoint:
             args.append(checkpoint.commit)
         res = run_git(args, self.workdir, check=False)

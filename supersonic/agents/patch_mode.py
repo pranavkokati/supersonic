@@ -115,14 +115,18 @@ def _attempt_apply(agent_result: AgentResult, workdir: Path) -> tuple[bool, str]
 
 def run_patch_diff_turn(
     runner: CodingAgentRunner, prompt: str, workdir: Path, on_line: Optional[LineCallback] = None,
+    model: Optional[str] = None,
 ) -> PatchModeResult:
     """Attempt one turn in patch-diff mode. Never raises — worst case, applied=False
     and the caller falls back to the normal full-file-rewrite path.
 
     Fallback chain: prompt -> try apply -> (on any failure) ONE stricter
-    re-prompt showing the exact error -> try apply again -> give up."""
+    re-prompt showing the exact error -> try apply again -> give up.
+
+    `model` is passed straight through to every runner.run() call below —
+    Risk-Aware Model Escalation's lever, same as the non-patch-mode path."""
     diff_prompt = prompt + "\n" + DIFF_INSTRUCTIONS
-    agent_result = runner.run(diff_prompt, workdir, on_line=on_line)
+    agent_result = runner.run(diff_prompt, workdir, on_line=on_line, model=model)
 
     applied, error_text = _attempt_apply(agent_result, workdir)
     if applied:
@@ -136,7 +140,7 @@ def run_patch_diff_turn(
         "Return a corrected unified diff that applies cleanly against the CURRENT working "
         "tree. Output ONLY the diff, nothing else."
     )
-    agent_result2 = runner.run(reprompt, workdir, on_line=on_line)
+    agent_result2 = runner.run(reprompt, workdir, on_line=on_line, model=model)
     applied2, error_text2 = _attempt_apply(agent_result2, workdir)
     if applied2:
         return PatchModeResult(used_patch_mode=True, applied=True, attempts=2, agent_result=agent_result2)

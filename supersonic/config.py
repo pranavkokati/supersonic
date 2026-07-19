@@ -128,6 +128,32 @@ class UserSecrets(BaseModel):
     # no access to this machine's private key is needed to check one. On by
     # default.
     dle_signed_receipts: bool = True
+    # Risk-Aware Model Escalation: if the turn that just shipped had at least
+    # one HIGH-risk file in its Review Risk brief, the loop escalates to a
+    # stronger model for the turn immediately following it — both the coding
+    # agent's own CLI invocation (via its --model flag) and Supersonic's own
+    # critic call — on the theory that a turn continuing work in an area
+    # already flagged as auth/payment/migration-adjacent, high-blast-radius,
+    # or undertested deserves stronger judgment on the very next pass, not
+    # just a heuristic warning read after the fact. It can never affect the
+    # turn that triggered it (Review Risk only runs on a turn that already
+    # passed the gate and shipped), and it decays after exactly one escalated
+    # turn — re-evaluated fresh from whatever the newest shipped turn found.
+    dle_risk_escalation: bool = True
+    # Model passed via --model to each coding-agent CLI when escalating.
+    # Empty string = "no escalation target configured for this agent" — the
+    # feature safely no-ops for that agent and the turn runs at its normal
+    # model. Claude Code CLI accepts the "opus" alias directly (confirmed
+    # current as of its July 2026 docs), so it ships a sensible default;
+    # Codex/OpenCode/Cursor/Aider are left blank deliberately — their model
+    # catalogs move fast enough that a hardcoded "strongest available model"
+    # string would go stale and risk silently failing a real user's build.
+    # Set your own in Settings once you know which model you want.
+    escalation_model_claude: str = "opus"
+    escalation_model_codex: str = ""
+    escalation_model_opencode: str = ""
+    escalation_model_cursor: str = ""
+    escalation_model_aider: str = ""
 
     model_config = ConfigDict(extra="ignore")
 

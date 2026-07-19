@@ -33,6 +33,13 @@ touched function's tests are weaker than they look, not proof of a bug, so
 it participates in the normal N-of-M count instead of failing the turn
 outright.
 
+`critic_model=` is a separate, orthogonal knob — not a new signal, just an
+override for which model the existing critic signal above uses this call.
+Risk-Aware Model Escalation (`loop/orchestrator.py`) sets it to the
+provider's stronger `default_model` for the turn right after one shipped
+with a HIGH-risk Review Risk finding; every other caller leaves it unset and
+gets the original fast_model/default_model behavior unchanged.
+
 `build_qa_reprompt()` generalizes the "one corrective re-prompt, then accept
 the verdict" pattern established by Syntax Shield / Dependency Trust / Secret
 Leak to the two original Verify signals mechanical enough for it to actually
@@ -123,10 +130,11 @@ def run_gate(
     dependency_trust: Optional[DependencyTrustVerdict] = None,
     secret_leak: Optional[SecretLeakVerdict] = None,
     test_quality: Optional[TestQualityVerdict] = None,
+    critic_model: Optional[str] = None,
 ) -> GateResult:
     tests = run_tests(workdir)
     lint = run_lint(workdir)
-    critic = critic_judge(provider, goal=goal, diff=diff, invariants=invariants)
+    critic = critic_judge(provider, goal=goal, diff=diff, invariants=invariants, model=critic_model)
     thrash = thrash_detect(diff, recent_diffs)
     telemetry = telemetry if telemetry is not None else TelemetryVerdict()
     dependency_trust = dependency_trust if dependency_trust is not None else DependencyTrustVerdict()

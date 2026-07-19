@@ -257,13 +257,47 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
         # point regression detection naturally has nothing to compare against
         # (see verify/telemetry_gate.compute_regression).
         telemetry_baseline: List[float] = []
+        # Risk-Aware Model Escalation: True whenever the most recently shipped
+        # turn's Review Risk brief flagged at least one HIGH-risk file. Only
+        # ever set from inside the `if gate.passed:` branch after a review
+        # brief is computed — left untouched by a rollback, so a failed turn
+        # doesn't erase what an earlier shipped turn found.
+        escalate_next_turn = False
+        AGENT_ESCALATION_MODELS = {
+            "claude": secrets.escalation_model_claude, "codex": secrets.escalation_model_codex,
+            "opencode": secrets.escalation_model_opencode, "cursor": secrets.escalation_model_cursor,
+            "aider": secrets.escalation_model_aider,
+        }
 
         turn = 0
         while turn < max_turns:
             turn += 1
             turns_completed = turn
             goal = idea if turn == 1 else (next_follow_up or "Continue building toward the plan.")
-            ctx.emit({"type": "turn_started", "turn": turn, "goal": goal})
+
+            # Risk-Aware Model Escalation — decided once per turn, before the
+            # agent runs, from the PRIOR turn's outcome only (never this
+            # turn's, which hasn't happened yet). See dle_risk_escalation.
+            escalation_active = not demo and secrets.dle_risk_escalation and escalate_next_turn
+            agent_model_override: Optional[str] = None
+            critic_model_override: Optional[str] = None
+            escalation_reason = ""
+            if escalation_active:
+                agent_model_override = (AGENT_ESCALATION_MODELS.get(chosen_agent) or "").strip() or None
+                if provider is not None:
+                    critic_model_override = provider.default_model
+                escalation_reason = "previous turn shipped a HIGH-risk file"
+                if agent_model_override or critic_model_override:
+                    ctx.agent_line(
+                        f"[risk escalation] {escalation_reason} — "
+                        f"agent model: {agent_model_override or 'unchanged (no target configured)'}, "
+                        f"critic model: {critic_model_override or 'unchanged (no provider)'}"
+                    )
+
+            ctx.emit({
+                "type": "turn_started", "turn": turn, "goal": goal,
+                "escalated": bool(agent_model_override or critic_model_override), "escalation_reason": escalation_reason,
+            })
 
             retrieval = graph.retrieve(goal, token_budget=secrets.ledger_context_budget, current_turn=turn)
 
@@ -323,7 +357,7 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                 # normal full-file-rewrite path on any failure; never blocks a turn.
                 if secrets.dle_patch_diff_mode:
                     ctx.dle_stage_event("patch", "running")
-                    patch_result = run_patch_diff_turn(runner, prompt, workdir, on_line=ctx.agent_line)
+                    patch_result = run_patch_diff_turn(runner, prompt, workdir, on_line=ctx.agent_line, model=agent_model_override)
                     if patch_result.applied:
                         ctx.dle_stage_event("patch", "pass", f"applied cleanly in {patch_result.attempts} attempt(s)")
                         agent_result = patch_result.agent_result
@@ -333,10 +367,10 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                         ctx.agent_line(
                             f"[patch-diff mode] falling back to full-file rewrite: {patch_result.fallback_reason}"
                         )
-                        agent_result = runner.run(prompt, workdir, on_line=ctx.agent_line)
+                        agent_result = runner.run(prompt, workdir, on_line=ctx.agent_line, model=agent_model_override)
                 else:
                     ctx.dle_stage_event("patch", "skipped", "disabled in settings")
-                    agent_result = runner.run(prompt, workdir, on_line=ctx.agent_line)
+                    agent_result = runner.run(prompt, workdir, on_line=ctx.agent_line, model=agent_model_override)
 
                 diff = checkpoints.diff_since(last_good)
 
@@ -348,7 +382,7 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                     if shield_result.ran and not shield_result.ok:
                         ctx.agent_line("[syntax shield] syntax error detected — issuing one corrective re-prompt")
                         corrective_prompt = f"{prompt}\n\n{shield_result.reprompt}"
-                        runner.run(corrective_prompt, workdir, on_line=ctx.agent_line)
+                        runner.run(corrective_prompt, workdir, on_line=ctx.agent_line, model=agent_model_override)
                         effective_prompt = corrective_prompt
                         diff = checkpoints.diff_since(last_good)
                         shield_result = run_syntax_shield(workdir, diff)
@@ -422,7 +456,7 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                             if dependency_trust_verdict.ran and not dependency_trust_verdict.ok:
                                 ctx.agent_line("[dependency trust] unverifiable package detected — issuing one corrective re-prompt")
                                 corrective_prompt = f"{prompt}\n\n{dependency_trust_verdict.reprompt}"
-                                runner.run(corrective_prompt, workdir, on_line=ctx.agent_line)
+                                runner.run(corrective_prompt, workdir, on_line=ctx.agent_line, model=agent_model_override)
                                 effective_prompt = corrective_prompt
                                 diff = checkpoints.diff_since(last_good)
                                 dependency_trust_verdict = run_dependency_trust(workdir, diff)
@@ -472,7 +506,7 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                                 if secret_leak_verdict.ran and not secret_leak_verdict.ok:
                                     ctx.agent_line("[secret leak] likely credential detected — issuing one corrective re-prompt")
                                     corrective_prompt = f"{prompt}\n\n{secret_leak_verdict.reprompt}"
-                                    runner.run(corrective_prompt, workdir, on_line=ctx.agent_line)
+                                    runner.run(corrective_prompt, workdir, on_line=ctx.agent_line, model=agent_model_override)
                                     effective_prompt = corrective_prompt
                                     diff = checkpoints.diff_since(last_good)
                                     secret_leak_verdict = run_secret_leak_gate(workdir, diff)
@@ -556,6 +590,7 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                                 dependency_trust=dependency_trust_verdict,
                                 secret_leak=secret_leak_verdict,
                                 test_quality=test_quality_verdict,
+                                critic_model=critic_model_override,
                             )
 
                             # Generalize the "one corrective re-prompt, then
@@ -570,7 +605,7 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                             if qa_reprompt:
                                 ctx.agent_line("[verify gate] fixable test/lint failure detected — issuing one corrective re-prompt")
                                 corrective_prompt = f"{prompt}\n\n{qa_reprompt}"
-                                runner.run(corrective_prompt, workdir, on_line=ctx.agent_line)
+                                runner.run(corrective_prompt, workdir, on_line=ctx.agent_line, model=agent_model_override)
                                 effective_prompt = corrective_prompt
                                 diff = checkpoints.diff_since(last_good)
                                 gate = run_gate(
@@ -580,6 +615,7 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                                     telemetry=telemetry_verdict,
                                     dependency_trust=dependency_trust_verdict,
                                     secret_leak=secret_leak_verdict,
+                                    critic_model=critic_model_override,
                                 )
 
             recent_diffs.append(diff)
@@ -633,6 +669,10 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                             test_quality_findings=test_quality_findings,
                         )
                         ctx.review_brief_event(brief)
+                        # Feed this turn's outcome forward: the NEXT turn (not
+                        # this one — it already shipped) escalates if this
+                        # brief found a HIGH-risk file. See dle_risk_escalation.
+                        escalate_next_turn = brief.high_count > 0
                         if brief.high_count:
                             ledger.record_decision(
                                 turn, f"Turn {turn}: {brief.high_count} high-risk file(s) shipped",

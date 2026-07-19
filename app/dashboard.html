@@ -320,6 +320,18 @@
         </section>
 
         <section class="sn-keys-card">
+          <h2>Risk-aware model escalation</h2>
+          <p class="sn-keys-desc">If a shipped turn's Review Risk brief flags a HIGH-risk file, the next turn runs at a stronger model — both the coding agent's own CLI and Supersonic's internal critic call. Leave an agent's field blank to skip escalation for it (the turn just runs at its normal model).</p>
+          <div class="sn-keys-grid">
+            <label class="sn-key-field"><span>Claude Code escalation model</span><input name="escalation_model_claude" type="text" placeholder="opus" /></label>
+            <label class="sn-key-field"><span>Codex escalation model</span><input name="escalation_model_codex" type="text" placeholder="e.g. gpt-5.3-codex" /></label>
+            <label class="sn-key-field"><span>OpenCode escalation model</span><input name="escalation_model_opencode" type="text" placeholder="provider/model" /></label>
+            <label class="sn-key-field"><span>Cursor Agent escalation model</span><input name="escalation_model_cursor" type="text" placeholder="e.g. gpt-5" /></label>
+            <label class="sn-key-field"><span>Aider escalation model</span><input name="escalation_model_aider" type="text" placeholder="provider/model" /></label>
+          </div>
+        </section>
+
+        <section class="sn-keys-card">
           <h2>Shipping</h2>
           <p class="sn-keys-desc">Native git + the <code>gh</code> CLI — no middleman. Requires <code>gh auth login</code> once, outside Supersonic.</p>
           <div class="sn-keys-grid">
@@ -360,7 +372,7 @@
     </main>
   </div>
 
-  <script src="/assets/js/dashboard.js?v=3"></script>
+  <script src="/assets/js/dashboard.js?v=4"></script>
   <script src="/assets/js/dashboard-shell.js?v=1"></script>
 </body>
 </html>

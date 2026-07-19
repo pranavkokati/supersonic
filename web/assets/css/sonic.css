@@ -40,6 +40,13 @@
 }
 .pipeline-flow span { color: var(--text-secondary); font-weight: 500; }
 .pipeline-flow .arrow { color: var(--text-muted); padding: 0 6px; }
+.pipeline-flow-note {
+  margin-top: 10px;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 520px;
+}
 
 /* A short labeled list, not a row of colored badges. */
 .differentiator-row {

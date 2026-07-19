@@ -180,6 +180,14 @@
         document.querySelector("#loop-turn-label").textContent = `turn ${evt.turn}`;
         document.querySelector("#run-progress-fill").style.width = `${Math.min(92, 10 + evt.turn * 6)}%`;
         playByPlay(`Turn ${evt.turn}: ${evt.goal || ""}`.slice(0, 140));
+        // Risk-Aware Model Escalation: set by RunContext's turn_started emit in
+        // orchestrator.py whenever the PRIOR turn's Review Risk brief found a
+        // HIGH-risk file — this turn's agent/critic calls run at a stronger
+        // configured model. No dedicated panel; a play-by-play line is
+        // proportional since it's a background lever, not a pass/fail signal.
+        if (evt.escalated) {
+          playByPlay(`Turn ${evt.turn}: escalated to a stronger model — ${evt.escalation_reason || "prior turn flagged high risk"}`);
+        }
         // DLE stages 1-4 (factor/patch/shield/telemetry) run fresh each turn ahead of the
         // expensive verify gate; reset them to pending so the tracker doesn't show stale
         // pass/fail state from the previous turn. "ship" is left alone until this turn's

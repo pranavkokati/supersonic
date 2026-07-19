@@ -64,6 +64,11 @@ class SecretsUpdate(BaseModel):
     ledger_context_budget: Optional[int] = None
     max_turn_budget: Optional[int] = None
     verify_min_signals_pass: Optional[int] = None
+    escalation_model_claude: Optional[str] = None
+    escalation_model_codex: Optional[str] = None
+    escalation_model_opencode: Optional[str] = None
+    escalation_model_cursor: Optional[str] = None
+    escalation_model_aider: Optional[str] = None
 
 
 class ProjectCreate(BaseModel):

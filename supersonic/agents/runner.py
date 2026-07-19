@@ -134,11 +134,17 @@ class CodingAgentRunner:
         self.kind = kind
         self.secrets = secrets
 
-    def run(self, prompt: str, workdir: Path, on_line: Optional[LineCallback] = None) -> AgentResult:
+    def run(
+        self, prompt: str, workdir: Path, on_line: Optional[LineCallback] = None, model: Optional[str] = None,
+    ) -> AgentResult:
+        """`model`, when set, is passed straight through to the CLI's own
+        --model flag (Risk-Aware Model Escalation's lever on the coding agent
+        itself — see config.py's escalation_model_* fields). None/"" means
+        "run at whatever model this CLI is configured to use by default"."""
         workdir.mkdir(parents=True, exist_ok=True)
         prompt_file = _write_prompt(workdir, prompt)
         env = self._env()
-        cmd = self._command(prompt_file, prompt)
+        cmd = self._command(prompt_file, prompt, model=model)
         if on_line:
             on_line(f"$ {' '.join(cmd)}")
         mapper = _cursor_stream_line if self.kind == "cursor" else None
@@ -152,27 +158,42 @@ class CodingAgentRunner:
             e["ANTHROPIC_API_KEY"] = self.secrets.anthropic_api_key
         return e
 
-    def _command(self, prompt_file: Path, prompt: str) -> List[str]:
+    def _command(self, prompt_file: Path, prompt: str, model: Optional[str] = None) -> List[str]:
         text = prompt[:8000]
+        model = (model or "").strip()
         if self.kind == "codex":
             if shutil.which("codex"):
-                return ["codex", "exec", "--full-auto", text]
-            if shutil.which("npx"):
-                return ["npx", "-y", "@openai/codex", "exec", "--full-auto", text]
-            return ["codex", "exec", text]
+                cmd = ["codex", "exec", "--full-auto", text]
+            elif shutil.which("npx"):
+                cmd = ["npx", "-y", "@openai/codex", "exec", "--full-auto", text]
+            else:
+                cmd = ["codex", "exec", text]
+            # Confirmed: `codex exec --model/-m <name>` (developers.openai.com/codex/cli/reference).
+            return cmd + (["--model", model] if model else [])
         if self.kind == "claude":
-            return ["claude", "-p", text, "--dangerously-skip-permissions"]
+            cmd = ["claude", "-p", text, "--dangerously-skip-permissions"]
+            # Confirmed: `claude -p "..." --model <name|alias>` (code.claude.com/docs/en/model-config).
+            return cmd + (["--model", model] if model else [])
         if self.kind == "opencode":
-            return ["opencode", "run", str(prompt_file)]
+            cmd = ["opencode", "run", str(prompt_file)]
+            # Confirmed: `opencode run --model/-m provider/model` (open-code.ai/en/docs/cli).
+            return cmd + (["--model", model] if model else [])
         if self.kind == "cursor":
             if shutil.which("cursor-agent"):
-                return [
+                cmd = [
                     "cursor-agent", "-p", "--force", "--trust",
                     "--output-format", "stream-json", "--stream-partial-output", text,
                 ]
+                # Confirmed for the cursor-agent binary specifically: `cursor-agent
+                # -p "..." --model <name>` (cursor.com/docs/cli/reference/parameters).
+                return cmd + (["--model", model] if model else [])
+            # Fallback path uses a different, unverified command shape ("cursor
+            # agent ...") — deliberately not appending an unconfirmed flag here.
             return ["cursor", "agent", "-p", text]
         if self.kind == "aider":
-            return ["aider", "--yes-always", "--no-check-update", "--message", text]
+            cmd = ["aider", "--yes-always", "--no-check-update", "--message", text]
+            # Confirmed: aider routes through LiteLLM, `--model provider/model-id`.
+            return cmd + (["--model", model] if model else [])
         return ["echo", f"unknown agent kind: {self.kind}"]
 
 
