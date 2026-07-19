@@ -9,6 +9,5 @@ case "${1:-serve}" in
   serve)  exec sonic serve "${@:2}" ;;
   doctor) exec sonic doctor "${@:2}" ;;
   demo)   exec sonic run --demo "${@:2}" ;;
-  race)   exec sonic run --race "${@:2}" ;;
   *)      exec sonic "$@" ;;
 esac

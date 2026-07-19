@@ -17,7 +17,6 @@ from pydantic import BaseModel
 from supersonic.agents.runner import available_agents
 from supersonic.config import UserSecrets, ensure_dirs, get_settings, load_secrets, save_secrets
 from supersonic.events import subscribe
-from supersonic.loop.bandit import AgentBandit
 from supersonic.loop.checkpoint import CheckpointManager, run_git
 from supersonic.memory import ContinuityLedger
 from supersonic.providers import available_providers
@@ -50,10 +49,6 @@ class SecretsUpdate(BaseModel):
     ollama_base_url: Optional[str] = None
     preferred_provider: Optional[str] = None
     default_agent: Optional[str] = None
-    race_enabled: Optional[bool] = None
-    race_agents: Optional[List[str]] = None
-    max_race_turns: Optional[int] = None
-    race_challenger_turn_cap: Optional[int] = None
     ship_mode: Optional[str] = None
     github_owner: Optional[str] = None
     github_repo: Optional[str] = None
@@ -125,7 +120,6 @@ def health() -> Dict[str, Any]:
         "features": [
             "continuity_graph",
             "checkpoint_verify_rollback",
-            "bandit_agent_racing",
             "provider_agnostic",
             "native_git_shipping",
             "goal_critic",
@@ -296,20 +290,6 @@ def api_project_checkpoints(pid: str) -> Dict[str, Any]:
         return {"project_id": pid, "checkpoints": []}
     checkpoints = CheckpointManager(wd).list()
     return {"project_id": pid, "checkpoints": [c.to_dict() for c in checkpoints]}
-
-
-@app.get("/api/projects/{pid}/bandit")
-def api_project_bandit(pid: str) -> Dict[str, Any]:
-    p = get_project(pid)
-    if not p:
-        raise HTTPException(404, "project not found")
-    sec = load_secrets()
-    wd = Path(p.workdir) if p.workdir else None
-    agents = list(dict.fromkeys([sec.default_agent, *sec.race_agents]))
-    if not wd or not wd.exists() or len(agents) < 2:
-        return {"project_id": pid, "enabled": sec.race_enabled, "win_rates": {}}
-    bandit = AgentBandit(wd, agents)
-    return {"project_id": pid, "enabled": sec.race_enabled, "win_rates": bandit.win_rates()}
 
 
 @app.get("/api/validate")

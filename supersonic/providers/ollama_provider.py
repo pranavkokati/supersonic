@@ -1,8 +1,8 @@
 """Ollama provider — local, free, zero-API-key inference for anyone running a local model.
 
 This is what makes Supersonic runnable with $0 in API spend: point it at a
-local Ollama server and the planner, critic, and bandit classifier all work
-against a self-hosted model.
+local Ollama server and the planner and critic both work against a
+self-hosted model.
 """
 
 from __future__ import annotations

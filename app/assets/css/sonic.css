@@ -1,51 +1,59 @@
 /* Supersonic brand accents — layered on the shared style.css design tokens. */
-:root {
-  --sonic-accent: #ff6a3d;
-  --sonic-accent-soft: #ffe9df;
-  --sonic-good: #2f9e6b;
-  --sonic-good-soft: #e3f5eb;
-  --sonic-bad: #d3453d;
-  --sonic-bad-soft: #fbe7e5;
-}
-.df-logo-word em { color: var(--sonic-accent); font-style: normal; }
-.hero-df-title { max-width: none; text-wrap: balance; letter-spacing: -0.02em; }
+
 .quickstart-block {
-  background: var(--bg-soft);
-  border: 0.5px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 24px;
-  margin-top: 24px;
+  padding: 22px;
+  margin-top: 22px;
 }
 .quickstart-block pre {
-  margin: 16px 0 0;
+  margin: 14px 0 0;
   padding: 16px;
-  background: #1a1a1a;
-  color: #e8e8e8;
-  border-radius: 8px;
+  background: #08090a;
+  color: #d8d7d2;
+  border-radius: var(--radius-sm);
   font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 12.5px;
+  line-height: 1.65;
   overflow-x: auto;
+  border: 1px solid var(--line);
 }
 .quickstart-block .kw { color: #c9a0dc; }
-.quickstart-block .str { color: #98c379; }
-.quickstart-block .cm { color: #6a737d; }
-.agent-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-top: 32px; }
+.quickstart-block .str { color: var(--good); }
+.quickstart-block .cm { color: var(--text-muted); }
+
+.agent-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; margin-top: 28px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 @media (max-width: 1000px) { .agent-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 600px) { .agent-grid { grid-template-columns: repeat(2, 1fr); } }
-.agent-card { border: 0.5px solid var(--line); border-radius: var(--radius-sm); padding: 20px; background: var(--bg-soft); }
-.agent-card h3 { font-size: 15px; margin: 0 0 8px; }
-.agent-card p { font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.45; }
-.pipeline-flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 24px; font-family: var(--mono); font-size: 12px; }
-.pipeline-flow span { padding: 6px 12px; border-radius: 999px; border: 0.5px solid var(--line); background: var(--bg-soft); }
-.pipeline-flow .arrow { border: none; background: none; color: var(--text-muted); padding: 0 4px; }
-.differentiator-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
-.differentiator-pill {
+.agent-card { padding: 18px; background: var(--surface); }
+.agent-card h3 { font-family: var(--sans); font-weight: 650; font-size: 14px; margin: 0 0 6px; color: var(--text); }
+.agent-card p { font-size: 12px; color: var(--text-muted); margin: 0; line-height: 1.5; }
+
+/* Plain sequence, not a strip of pill chips — the steps read as a sentence,
+   not a decorative diagram. */
+.pipeline-flow {
+  margin-top: 20px;
+  font-family: var(--sans);
   font-size: 13px;
-  font-weight: 500;
-  padding: 8px 16px;
-  border-radius: 999px;
-  background: var(--sonic-accent-soft);
-  color: #b8461f;
-  border: 0.5px solid rgba(255, 106, 61, 0.28);
+  color: var(--text-muted);
 }
+.pipeline-flow span { color: var(--text-secondary); font-weight: 500; }
+.pipeline-flow .arrow { color: var(--text-muted); padding: 0 6px; }
+
+/* A short labeled list, not a row of colored badges. */
+.differentiator-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.differentiator-pill {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.differentiator-pill::before { content: "— "; color: var(--text-muted); }

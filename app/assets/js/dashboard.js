@@ -90,7 +90,6 @@
     document.querySelector("#agent-log").textContent = "";
     document.querySelector("#verify-log").textContent = "Verify gate results (tests, lint, goal critic, thrash detector) appear here each turn.";
     document.querySelector("#diff-log").textContent = "Diff since the last checkpoint streams here.";
-    document.querySelector("#race-log").innerHTML = `<p class="sn-dim">No races run yet — enable Agent Racing in Settings.</p>`;
     document.querySelector("#setup-timeline").innerHTML = "";
     document.querySelector("#loop-timeline").innerHTML = "";
     document.querySelector("#checkpoint-track").innerHTML = "";
@@ -99,6 +98,9 @@
     document.querySelector("#follow-up-list").innerHTML = "";
     document.querySelector("#run-progress")?.classList.remove("hidden");
     document.querySelector("#run-progress-fill").style.width = "4%";
+    resetDleTrack();
+    document.querySelector("#dle-log").textContent = "Deterministic Loop Engine stage detail streams here each turn — static factoring, patch-diff streaming, syntax shield, telemetry gate, and ship.";
+    resetReviewBanner();
     setStatus("running");
   }
 
@@ -147,6 +149,15 @@
         break;
       case "checkpoint":
         appendCheckpoint(evt);
+        // The "ship" DLE stage is stage 5 of the pipeline (existing Checkpoint/Rollback,
+        // untouched by the DLE work). Drive it from the checkpoint event so the DLE tab
+        // reflects ship status even before/if the backend emits a dedicated dle_stage
+        // event for "ship" — see the dle_stage contract comment above updateDleStage().
+        updateDleStage({
+          stage: "ship",
+          status: evt.verified ? "pass" : "fail",
+          detail: evt.verified ? `Checkpoint turn ${evt.turn} verified` : `Checkpoint turn ${evt.turn} rolled back`,
+        });
         break;
       case "ledger_entry":
         appendLedgerEntryStub(evt);
@@ -154,14 +165,22 @@
       case "verify_result":
         appendLog("#verify-log", formatVerify(evt), true);
         break;
-      case "race_result":
-        renderRace(evt);
+      case "dle_stage":
+        updateDleStage(evt);
+        break;
+      case "review_brief":
+        renderReviewBrief(evt);
         break;
       case "turn_started":
         bumpTurn();
         document.querySelector("#loop-turn-label").textContent = `turn ${evt.turn}`;
         document.querySelector("#run-progress-fill").style.width = `${Math.min(92, 10 + evt.turn * 6)}%`;
         playByPlay(`Turn ${evt.turn}: ${evt.goal || ""}`.slice(0, 140));
+        // DLE stages 1-4 (factor/patch/shield/telemetry) run fresh each turn ahead of the
+        // expensive verify gate; reset them to pending so the tracker doesn't show stale
+        // pass/fail state from the previous turn. "ship" is left alone until this turn's
+        // checkpoint event resolves it.
+        resetDleTrack({ keepShip: true });
         break;
       case "turn_plan":
         document.querySelector("#mission-route").textContent = evt.done ? "Wrapping up…" : "Routing…";
@@ -220,6 +239,130 @@
     return bits.join("\n");
   }
 
+  /**
+   * DLE (Deterministic Loop Engine) event contract — frontend-invented, reconcile with
+   * whatever the backend agent building supersonic/loop/ actually emits.
+   *
+   * The DLE replaces the deleted Agent Racing feature with a 6-stage per-turn pipeline:
+   *   1. factor    — Static Factoring: maps relevant files before the agent starts writing
+   *   2. patch     — Patch-Diff Streaming: agent emits unified diffs instead of full-file rewrites
+   *   3. shield    — Syntax Shield: fast local AST check before the expensive verify gate
+   *   4. telemetry — Telemetry Gate: optional local Playwright check (console errors, layout
+   *                  sanity, perf-regression budget); only runs if a frontend dev server is
+   *                  detected, otherwise reports status "skipped"
+   *   5. deptrust  — Dependency Trust Gate: newly-added packages in this turn's diff are
+   *                  checked against the real PyPI/npm registry; a nonexistent package fails
+   *                  the turn outright (see supersonic/verify/dependency_trust.py)
+   *   6. ship      — the existing Checkpoint/Rollback step (untouched); driven here from the
+   *                  existing "checkpoint" event, not a dedicated dle_stage event, unless the
+   *                  backend chooses to emit one for "ship" too (harmless either way — the
+   *                  last write for a given stage/turn wins).
+   *
+   * Expected event shape on the run's SSE stream:
+   *   {
+   *     "type": "dle_stage",
+   *     "stage": "factor" | "patch" | "shield" | "telemetry" | "deptrust" | "ship",
+   *     "status": "pending" | "running" | "pass" | "fail" | "skipped",
+   *     "detail": "short human-readable line, e.g. 'Static factoring: 3 files selected of 142'"
+   *   }
+   *
+   * "skipped" is a distinct state from "fail" — it means the stage was not applicable this
+   * turn (e.g. Telemetry with no frontend dev server running, or Deptrust with no new
+   * dependencies this turn), not that it ran and broke. Unknown `stage` values are ignored
+   * rather than throwing, so an unrecognized/future stage name from the backend degrades
+   * silently instead of breaking the run view.
+   */
+  const DLE_STAGES = ["factor", "patch", "shield", "telemetry", "deptrust", "ship"];
+
+  function resetDleTrack({ keepShip = false } = {}) {
+    DLE_STAGES.forEach((stage) => {
+      if (keepShip && stage === "ship") return;
+      const node = document.querySelector(`#dle-track [data-stage="${stage}"]`);
+      if (!node) return;
+      node.className = "sn-dle-stage";
+      const detail = node.querySelector(".sn-dle-stage-detail");
+      if (detail) detail.textContent = stage === "factor" ? "Waiting for turn…" : "—";
+    });
+  }
+
+  function updateDleStage(evt) {
+    if (!DLE_STAGES.includes(evt.stage)) return; // unknown stage name — ignore, don't throw
+    const node = document.querySelector(`#dle-track [data-stage="${evt.stage}"]`);
+    if (node) {
+      node.className = `sn-dle-stage ${evt.status || "pending"}`;
+      const detail = node.querySelector(".sn-dle-stage-detail");
+      if (detail) detail.textContent = evt.detail || evt.status || "";
+    }
+    if (evt.detail) {
+      appendLog("#dle-log", `[${evt.stage}] ${(evt.status || "").toUpperCase()} — ${evt.detail}`);
+    }
+  }
+
+  /**
+   * Review Brief — the headline differentiator, not a DLE sub-stage. Fired once
+   * per shipped turn by RunContext.review_brief_event() in orchestrator.py, from
+   * verify/review_risk.py's ranked output. Expected shape:
+   *   {
+   *     "type": "review_brief", "turn": <int>,
+   *     "high_count": <int>, "medium_count": <int>, "low_count": <int>,
+   *     "items": [{ "path", "score", "level", "reasons": [...], "lines_added",
+   *                 "lines_removed", "blast_radius", "has_test_delta" }, ...],
+   *     "summary": "<human-readable one-liner>"
+   *   }
+   * Rolled-back turns never fire this — there's nothing to review yet.
+   */
+  function renderReviewBrief(evt) {
+    const banner = document.querySelector("#review-banner");
+    const icon = document.querySelector("#review-banner-icon");
+    const text = document.querySelector("#review-banner-text");
+    const badge = document.querySelector("#review-tab-badge");
+    const summaryEl = document.querySelector("#review-summary");
+    const listEl = document.querySelector("#review-list");
+    if (!banner || !listEl) return;
+
+    const items = evt.items || [];
+    banner.classList.remove("hidden");
+    banner.className = `sn-review-banner ${evt.high_count ? "high" : evt.medium_count ? "medium" : "low"}`;
+    icon.textContent = evt.high_count ? "!" : evt.medium_count ? "•" : "✓";
+    text.textContent = `Turn ${evt.turn} shipped — ${evt.summary || ""}`;
+
+    if (badge) {
+      const flagged = (evt.high_count || 0) + (evt.medium_count || 0);
+      badge.textContent = String(flagged);
+      badge.classList.toggle("hidden", flagged === 0);
+    }
+
+    summaryEl.classList.add("hidden");
+    listEl.innerHTML = "";
+    items.forEach((item) => {
+      const li = document.createElement("li");
+      li.className = `sn-review-item ${item.level}`;
+      const reasons = (item.reasons || []).join("; ") || "no specific risk factors";
+      li.innerHTML = `
+        <div class="sn-review-item-head">
+          <span class="sn-review-item-level">${item.level}</span>
+          <code class="sn-review-item-path">${item.path}</code>
+          <span class="sn-review-item-lines">+${item.lines_added}/-${item.lines_removed}</span>
+        </div>
+        <p class="sn-review-item-reason">${reasons}</p>
+      `;
+      listEl.appendChild(li);
+    });
+
+    playByPlay(`Turn ${evt.turn}: ${evt.summary || "review brief ready"}`);
+  }
+
+  function resetReviewBanner() {
+    const banner = document.querySelector("#review-banner");
+    banner?.classList.add("hidden");
+    const badge = document.querySelector("#review-tab-badge");
+    badge?.classList.add("hidden");
+    const summaryEl = document.querySelector("#review-summary");
+    if (summaryEl) summaryEl.classList.remove("hidden");
+    const listEl = document.querySelector("#review-list");
+    if (listEl) listEl.innerHTML = "";
+  }
+
   function appendCheckpoint(evt) {
     const track = document.querySelector("#checkpoint-track");
     const node = document.createElement("span");
@@ -236,21 +379,6 @@
     div.innerHTML = `<div class="sn-ledger-kind">${evt.kind} · turn ${evt.turn}</div><div class="sn-ledger-title">${escapeHtml(evt.title)}</div>`;
     list.prepend(div);
     document.querySelector("#ledger-panel")?.classList.remove("hidden");
-  }
-
-  function renderRace(evt) {
-    document.querySelector("#mission-race")?.classList.remove("hidden");
-    const log = document.querySelector("#race-log");
-    if (log.querySelector(".sn-dim")) log.innerHTML = "";
-    const wrap = document.createElement("div");
-    wrap.innerHTML = `<div class="sn-panel-title" style="margin-bottom:6px">Turn ${evt.turn} · ${evt.task_type}</div>` +
-      (evt.entrants || []).map((e) => `
-        <div class="sn-race-entrant ${e.agent === evt.winner ? "winner" : ""}">
-          <div class="sn-race-entrant-head"><span>${e.agent}${e.agent === evt.winner ? " 🏆" : ""}</span><span class="sn-race-entrant-score">score ${e.score}</span></div>
-        </div>`).join("");
-    log.appendChild(wrap);
-    document.querySelector("#race-panel")?.classList.remove("hidden");
-    refreshBandit();
   }
 
   function renderTracking(evt) {
@@ -287,33 +415,11 @@
         document.querySelector("#files-section")?.classList.toggle("hidden", files.length === 0);
       }
     } catch (_) { /* ignore */ }
-    refreshBandit();
-  }
-
-  async function refreshBandit() {
-    if (!state.projectId) return;
-    try {
-      const data = await request(`/projects/${state.projectId}/bandit`);
-      const el = document.querySelector("#race-leaderboard");
-      const rates = data.win_rates || {};
-      if (!Object.keys(rates).length) { el.innerHTML = `<p class="sn-dim">No race data yet.</p>`; return; }
-      el.innerHTML = Object.entries(rates).map(([taskType, agents]) => `
-        <div class="sn-race-task-group">
-          <div class="sn-race-task-label">${taskType}</div>
-          ${Object.entries(agents).map(([agent, rate]) => `
-            <div class="sn-race-bar-row">
-              <span class="sn-race-agent-name">${agent}</span>
-              <span class="sn-race-bar-track"><span class="sn-race-bar-fill" style="width:${Math.round(rate * 100)}%"></span></span>
-              <span class="sn-race-pct">${Math.round(rate * 100)}%</span>
-            </div>`).join("")}
-        </div>`).join("");
-      document.querySelector("#race-panel")?.classList.toggle("hidden", !data.enabled && !Object.keys(rates).length);
-    } catch (_) { /* ignore */ }
   }
 
   // ---------- settings ----------
-  const ARRAY_FIELDS = new Set(["race_agents"]);
-  const BOOL_FIELDS = new Set(["race_enabled", "schedule_enabled"]);
+  const ARRAY_FIELDS = new Set();
+  const BOOL_FIELDS = new Set(["schedule_enabled"]);
 
   async function loadSettings() {
     try {
@@ -343,7 +449,7 @@
       const field = form.elements.namedItem(key);
       if (field) body[key] = field.checked; // only send bools this form actually has a control for
     }
-    ["max_race_turns", "max_turn_budget", "ledger_context_budget", "verify_min_signals_pass"].forEach((k) => {
+    ["max_turn_budget", "ledger_context_budget", "verify_min_signals_pass"].forEach((k) => {
       if (body[k] !== undefined) body[k] = Number(body[k]);
     });
     const status = document.querySelector("#secrets-status");
@@ -365,6 +471,10 @@
       document.querySelectorAll(".sn-mtab").forEach((t) => t.classList.toggle("active", t === tab));
       document.querySelectorAll(".sn-mpane").forEach((p) => p.classList.toggle("hidden", p.id !== `pane-${tab.dataset.pane}`));
     });
+  });
+
+  document.querySelector("#review-banner-btn")?.addEventListener("click", () => {
+    document.querySelector('.sn-mtab[data-pane="review"]')?.click();
   });
 
   loadHealth();

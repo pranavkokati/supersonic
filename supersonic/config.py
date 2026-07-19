@@ -34,12 +34,8 @@ class UserSecrets(BaseModel):
     ollama_base_url: str = "http://localhost:11434"
     preferred_provider: str = ""  # "" = auto-detect
 
-    # Coding agent backend(s). `race_agents` (>=2) enables Bandit-Gated Agent Racing.
+    # Coding agent backend.
     default_agent: AgentKind = "claude"
-    race_agents: list[str] = Field(default_factory=list)
-    race_enabled: bool = False
-    max_race_turns: int = 5
-    race_challenger_turn_cap: int = 6  # tool-call budget cap for the losing/challenger worktree
 
     # Shipping — native git + gh CLI, no middleman.
     ship_mode: Literal["push", "pr"] = "pr"
@@ -63,10 +59,43 @@ class UserSecrets(BaseModel):
     # Loop tuning
     ledger_context_budget: int = 6000  # max tokens of retrieved Continuity Graph context per turn
     max_turn_budget: int = 60
-    # Of the (up to 4) verification signals that actually ran, how many must pass.
-    # Floored at 1 — a value of 0 would make every turn pass unconditionally,
-    # silently defeating the entire Verify gate.
-    verify_min_signals_pass: int = Field(default=3, ge=1, le=4)
+    # Of the (up to 4, or 5 with the DLE telemetry gate enabled) verification
+    # signals that actually ran, how many must pass. Floored at 1 — a value
+    # of 0 would make every turn pass unconditionally, silently defeating the
+    # entire Verify gate.
+    verify_min_signals_pass: int = Field(default=3, ge=1, le=5)
+
+    # --- Deterministic Loop Engine (DLE) toggles ---------------------------
+    # Static import-graph scoping hint injected into each turn's prompt.
+    # Cheap (regex/ripgrep over the tree, cached); on by default.
+    dle_dependency_mapper: bool = True
+    # Ask the agent for a unified diff instead of direct file edits, and
+    # apply it with `git apply`. Off by default — not every coding-agent CLI
+    # backend reliably emits diff-only output; turn it on once you've
+    # confirmed your configured agent behaves well in this mode. Falls back
+    # to the normal full-file-rewrite path automatically on any failure.
+    dle_patch_diff_mode: bool = False
+    # Fast ast.parse/bracket-balance check before the four-signal gate.
+    # Cheap; on by default.
+    dle_syntax_shield: bool = True
+    # OPTIONAL fifth Verify signal (browser-based runtime check via
+    # Playwright). Auto-detected per project (needs a package.json dev/start
+    # script binding a port) and auto-skipped when Playwright/Chromium isn't
+    # available — this flag just allows disabling the *attempt* outright.
+    dle_telemetry_gate: bool = True
+    # Review Risk: after a turn ships, rank its changed files by blast-radius/
+    # sensitive-path/test-coverage heuristics so a human knows what to actually
+    # read closely. Cheap (static text analysis, no LLM call); on by default.
+    dle_review_risk: bool = True
+    # Dependency Trust Gate: before the expensive four-signal gate, check any
+    # newly-added package name (manifest entries or install-command lines) in
+    # this turn's diff against the real PyPI/npm registry. A nonexistent
+    # package fails the turn outright (the "slopsquatting" hallucinated-
+    # dependency attack pattern); a suspiciously new-but-real one is surfaced
+    # as a warning instead. Needs network access to the public registries;
+    # degrades to "not run" rather than blocking a turn if unreachable. On by
+    # default.
+    dle_dependency_trust: bool = True
 
     model_config = ConfigDict(extra="ignore")
 

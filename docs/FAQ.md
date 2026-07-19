@@ -4,9 +4,7 @@
 
 A local, open-source autonomous build loop. It plans a build, checkpoints the project with git, runs a coding
 agent, verifies the result against four independent signals, and either keeps the change as a new checkpoint
-or rolls it back — writing the reason to a structured memory (the Continuity Graph) either way. Optionally,
-two coding agents can race each other under a cost-bounded bandit, so the system learns which one wins at
-which kind of task.
+or rolls it back — writing the reason to a structured memory (the Continuity Graph) either way.
 
 ## Do I need four different vendor accounts to try it?
 
@@ -38,18 +36,17 @@ invariants and open failures are always included; decisions and facts are ranked
 turn's goal. Old, aged-out decisions get periodically folded into a single distilled `lesson` entry via one
 LLM call, so the ledger stays bounded without silently losing information.
 
-## Won't Agent Racing double my API costs?
+## Does Supersonic race multiple coding agents against each other?
 
-Only while the outcome is genuinely uncertain. Racing is gated by a Thompson-sampling bandit, not run on
-every turn — it races when the sampled posteriors for two agents on a given task type are still close, and
-stops racing once one agent has pulled decisively ahead for that task type. Thompson sampling has
-logarithmic cumulative regret, so racing frequency shrinks as the bandit learns rather than staying constant.
-A hard `max_race_turns` ceiling backstops the worst case regardless, and it's off by default.
+No, deliberately not. An earlier design ran two agent CLIs concurrently and used a Thompson-sampling bandit
+to pick a winner. It roughly doubled LLM spend on every turn it fired for, in exchange for a marginal benefit
+the Verify gate already delivers for free — bad output gets rejected regardless of which agent wrote it. It
+was cut. One configured agent per project, no bandit, no doubled cost.
 
 ## Which coding agents are supported?
 
 Claude Code, Codex, OpenCode, Cursor Agent, and Aider — any local CLI on `PATH`. `sonic doctor` reports which
-ones it can find. Pick one as your default, or list two or more in the race roster to enable racing.
+ones it can find. Pick one as your project's default agent.
 
 ## Can I try it without any API keys at all?
 

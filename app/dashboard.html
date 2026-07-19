@@ -4,12 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Supersonic</title>
-  <meta name="theme-color" content="rgb(251,251,248)" />
-  <link rel="stylesheet" href="/assets/css/style.css?v=2" />
-  <link rel="stylesheet" href="/assets/css/sonic.css?v=1" />
-  <link rel="stylesheet" href="/assets/css/dashboard.css?v=1" />
+  <meta name="theme-color" content="#fbf9f6" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/css/style.css?v=5" />
+  <link rel="stylesheet" href="/assets/css/sonic.css?v=3" />
+  <link rel="stylesheet" href="/assets/css/dashboard.css?v=2" />
   <link rel="stylesheet" href="/assets/css/dashboard-refresh.css?v=1" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 14 L14 3 L14 9 L21 9 L10 21 L10 15 Z' fill='%23ff6a3d'/></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 14 L14 3 L14 9 L21 9 L10 21 L10 15 Z' fill='%23e2542a'/></svg>" />
 </head>
 <body class="sn-dash">
   <div id="toast-root" class="sn-toast-root" aria-live="polite"></div>
@@ -82,7 +85,7 @@
             </div>
 
             <button type="button" id="loop-btn" class="sn-send-btn" aria-label="Start build">
-              <span class="sn-btn-label">Send</span>
+              <span class="sn-btn-label">Run</span>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="m5 12 14-7-4 14-3-6-7-1Z"/><path d="m12 13 7-8"/>
               </svg>
@@ -106,8 +109,23 @@
 
         <div id="mission-strip" class="sn-mission-strip hidden">
           <span id="mission-research" class="sn-mission-chip">Setup</span>
-          <span id="mission-race" class="sn-mission-chip hidden">Racing</span>
           <span id="mission-route" class="sn-mission-chip sn-mission-route">Routing…</span>
+        </div>
+
+        <!--
+          Review Brief banner — the headline surface, not a buried tab. Every
+          shipped turn (one that passed the Verify gate) gets its changed files
+          ranked by verify/review_risk.py: blast radius, sensitive-path hits,
+          missing test coverage. This is the actual differentiator — it targets
+          the documented gap that AI coding tools generate faster than humans
+          can safely review, not another autonomy/speed claim. See the "review"
+          tab below for the full ranked list; this banner is the always-visible
+          summary of the latest shipped turn.
+        -->
+        <div id="review-banner" class="sn-review-banner hidden">
+          <span id="review-banner-icon" class="sn-review-banner-icon"></span>
+          <span id="review-banner-text" class="sn-review-banner-text"></span>
+          <button type="button" id="review-banner-btn" class="sn-review-banner-btn">View review brief →</button>
         </div>
 
         <section class="sn-live" id="live-section">
@@ -118,7 +136,8 @@
                   <button type="button" class="sn-mtab active" data-pane="agent" role="tab">Agent</button>
                   <button type="button" class="sn-mtab" data-pane="verify" role="tab">Verify</button>
                   <button type="button" class="sn-mtab" data-pane="diff" role="tab">Diff</button>
-                  <button type="button" class="sn-mtab" data-pane="race" role="tab">Race</button>
+                  <button type="button" class="sn-mtab" data-pane="dle" role="tab">DLE</button>
+                  <button type="button" class="sn-mtab" data-pane="review" role="tab">Review <span id="review-tab-badge" class="sn-mtab-badge hidden">0</span></button>
                 </div>
                 <div id="pane-agent" class="sn-mpane" role="tabpanel">
                   <div id="agent-panel" class="sn-agent-panel">
@@ -135,8 +154,59 @@
                 <div id="pane-diff" class="sn-mpane hidden" role="tabpanel">
                   <pre id="diff-log" class="sn-agent-log sn-pane-placeholder">Diff since the last checkpoint streams here.</pre>
                 </div>
-                <div id="pane-race" class="sn-mpane hidden" role="tabpanel">
-                  <div id="race-log" class="sn-race-log"><p class="sn-dim">No races run yet — enable Agent Racing in Settings.</p></div>
+                <div id="pane-dle" class="sn-mpane hidden" role="tabpanel">
+                  <!--
+                    Deterministic Loop Engine (DLE) pipeline — replaces the deleted Agent Racing panel.
+                    Each turn runs 5 stages before/around the agent write: Factor → Patch → Shield →
+                    Telemetry → Ship. Stage nodes below are driven by `dle_stage` events on the run's
+                    SSE stream (see the event-shape comment above `updateDleStage` in dashboard.js);
+                    the "ship" node also lights up from the existing `checkpoint` event so it works
+                    even before the backend emits a dedicated ship-stage event.
+                  -->
+                  <div id="dle-panel" class="sn-dle-panel">
+                    <div id="dle-track" class="sn-dle-track">
+                      <div class="sn-dle-stage" data-stage="factor">
+                        <div class="sn-dle-stage-head"><span class="sn-dle-stage-dot"></span><span class="sn-dle-stage-label">Factor</span></div>
+                        <p class="sn-dle-stage-detail">Waiting for turn…</p>
+                      </div>
+                      <span class="sn-dle-arrow">→</span>
+                      <div class="sn-dle-stage" data-stage="patch">
+                        <div class="sn-dle-stage-head"><span class="sn-dle-stage-dot"></span><span class="sn-dle-stage-label">Patch</span></div>
+                        <p class="sn-dle-stage-detail">—</p>
+                      </div>
+                      <span class="sn-dle-arrow">→</span>
+                      <div class="sn-dle-stage" data-stage="shield">
+                        <div class="sn-dle-stage-head"><span class="sn-dle-stage-dot"></span><span class="sn-dle-stage-label">Shield</span></div>
+                        <p class="sn-dle-stage-detail">—</p>
+                      </div>
+                      <span class="sn-dle-arrow">→</span>
+                      <div class="sn-dle-stage" data-stage="telemetry">
+                        <div class="sn-dle-stage-head"><span class="sn-dle-stage-dot"></span><span class="sn-dle-stage-label">Telemetry</span></div>
+                        <p class="sn-dle-stage-detail">—</p>
+                      </div>
+                      <span class="sn-dle-arrow">→</span>
+                      <div class="sn-dle-stage" data-stage="deptrust">
+                        <div class="sn-dle-stage-head"><span class="sn-dle-stage-dot"></span><span class="sn-dle-stage-label">Deptrust</span></div>
+                        <p class="sn-dle-stage-detail">—</p>
+                      </div>
+                      <span class="sn-dle-arrow">→</span>
+                      <div class="sn-dle-stage" data-stage="ship">
+                        <div class="sn-dle-stage-head"><span class="sn-dle-stage-dot"></span><span class="sn-dle-stage-label">Ship</span></div>
+                        <p class="sn-dle-stage-detail">—</p>
+                      </div>
+                    </div>
+                    <pre id="dle-log" class="sn-agent-log sn-pane-placeholder">Deterministic Loop Engine stage detail streams here each turn — static factoring, patch-diff streaming, syntax shield, telemetry gate, and ship.</pre>
+                  </div>
+                </div>
+                <div id="pane-review" class="sn-mpane hidden" role="tabpanel">
+                  <!--
+                    Review Brief — ranked list of changed files for the latest shipped turn,
+                    driven by "review_brief" events (see the contract comment above
+                    renderReviewBrief() in dashboard.js). Only turns that pass the Verify gate
+                    produce a brief; a rolled-back turn has nothing to review.
+                  -->
+                  <div id="review-summary" class="sn-review-summary sn-pane-placeholder">Ship a turn to see its review brief — the ranked list of what to actually read before you trust it.</div>
+                  <ul id="review-list" class="sn-review-list"></ul>
                 </div>
               </div>
 
@@ -168,11 +238,6 @@
               <div id="ledger-panel" class="sn-ledger-panel hidden">
                 <div class="sn-panel-title">Continuity Graph <span id="ledger-stat" class="sn-phase-hint"></span></div>
                 <div id="ledger-list" class="sn-ledger-list"></div>
-              </div>
-
-              <div id="race-panel" class="sn-race-panel hidden">
-                <div class="sn-panel-title">Agent race leaderboard</div>
-                <div id="race-leaderboard" class="sn-race-leaderboard"></div>
               </div>
 
               <div id="playbook-panel" class="sn-playbook-panel hidden">
@@ -215,8 +280,8 @@
         </section>
 
         <section class="sn-keys-card">
-          <h2>Coding agent + Agent Racing</h2>
-          <p class="sn-keys-desc">Bring your own coding-agent CLI. Enable racing to bandit-select between two or more, with a hard per-run cost ceiling.</p>
+          <h2>Coding agent</h2>
+          <p class="sn-keys-desc">Bring your own coding-agent CLI. Pick the one that writes code for this project.</p>
           <div class="sn-keys-grid">
             <label class="sn-key-field"><span>Default agent</span>
               <select name="default_agent">
@@ -227,9 +292,6 @@
                 <option value="aider">Aider</option>
               </select>
             </label>
-            <label class="sn-key-field sn-key-checkbox"><span>Enable Agent Racing</span><input name="race_enabled" type="checkbox" /></label>
-            <label class="sn-key-field"><span>Race roster (comma-separated)</span><input name="race_agents" type="text" placeholder="claude,codex" /></label>
-            <label class="sn-key-field"><span>Max race turns / run</span><input name="max_race_turns" type="number" min="0" max="60" value="5" /></label>
           </div>
         </section>
 

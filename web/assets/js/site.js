@@ -1,17 +1,5 @@
-/** Landing — mock stack cycle + mobile nav (scroll motion in animations.js) */
-
-const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-function initMockStackCycle() {
-  const items = [...document.querySelectorAll("#mock-stack li")];
-  if (!items.length || reducedMotion) return;
-  let idx = 0;
-  setInterval(() => {
-    items.forEach((li) => li.classList.remove("active"));
-    items[idx]?.classList.add("active");
-    idx = (idx + 1) % items.length;
-  }, 1800);
-}
+/** Landing — mobile nav (scroll motion in animations.js, which also handles
+ * the hero ship-card's entrance via the shared IntersectionObserver reveal). */
 
 document.querySelectorAll(".api-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
@@ -42,4 +30,3 @@ function initMobileNav() {
 }
 
 initMobileNav();
-initMockStackCycle();

@@ -1,10 +1,10 @@
 """Supersonic orchestrator — Checkpoint -> Verify -> Rollback build loop.
 
 The whole system in one sentence: every turn is committed only if it earns
-it. A turn runs (single agent, or a bandit-gated race between two), gets
-scored by the Verify gate on up to four independent signals, and either
-becomes the new safe checkpoint or gets reverted — with the failure reason
-written into the Continuity Graph so the next attempt doesn't repeat it.
+it. A turn runs, gets scored by the Verify gate on up to four independent
+signals, and either becomes the new safe checkpoint or gets reverted — with
+the failure reason written into the Continuity Graph so the next attempt
+doesn't repeat it.
 
 This replaces the previous generation's single-call blind router (one LLM
 call decides run_agent/run_qa/done with a flat turn cap as the only safety
@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from supersonic.agents.patch_mode import run_patch_diff_turn
 from supersonic.agents.runner import AgentResult, CodingAgentRunner
 from supersonic.config import UserSecrets, get_settings
 from supersonic.events import publish
@@ -25,10 +26,9 @@ from supersonic.integrations import git_ops
 from supersonic.integrations.github import ensure_repo, ship as github_ship
 from supersonic.integrations.linear import create_issue as linear_create_issue, is_configured as linear_configured
 from supersonic.integrations.notify import notify_completion
-from supersonic.loop.bandit import AgentBandit, classify_task
 from supersonic.loop.checkpoint import Checkpoint, CheckpointManager
+from supersonic.loop.dependency_mapper import build_target_graph
 from supersonic.loop.planner import ProductBrand, TurnPlan, generate_brand, generate_plan, generate_turn_plan
-from supersonic.loop.race import run_race
 from supersonic.loop.rollback import rollback_to
 from supersonic.memory import ContinuityGraph, ContinuityLedger, distill, should_distill
 from supersonic.providers import get_provider
@@ -37,8 +37,15 @@ from supersonic.research.tavily import TavilyResearch, is_configured as tavily_c
 from supersonic.research.web import model_knowledge_bundle
 from supersonic.store import Run, append_agent_log, get_project, update_project, update_run
 from supersonic.templates import apply_template
-from supersonic.validate import RunValidationError, validate_live_run
+from supersonic.validate import validate_live_run
+from supersonic.verify.critic import CriticVerdict
+from supersonic.verify.dependency_trust import DependencyTrustVerdict, run_dependency_trust
 from supersonic.verify.gate import GateResult, run_gate
+from supersonic.verify.qa import CheckResult
+from supersonic.verify.review_risk import build_review_brief
+from supersonic.verify.syntax_shield import run_syntax_shield
+from supersonic.verify.telemetry_gate import TelemetryVerdict, run_telemetry_gate
+from supersonic.verify.thrash import ThrashVerdict
 from supersonic.webhooks import fire_webhook
 from supersonic.workdir import workdir_summary
 
@@ -95,8 +102,17 @@ class RunContext:
     def gate_event(self, turn: int, gate: GateResult) -> None:
         self.emit({"type": "verify_result", "turn": turn, **gate.to_dict()})
 
-    def race_event(self, turn: int, outcome) -> None:
-        self.emit({"type": "race_result", "turn": turn, **outcome.to_dict()})
+    def dle_stage_event(self, stage: str, status: str, detail: str = "") -> None:
+        """Live progress for the DLE panel. `stage` is one of factor/patch/shield/
+        telemetry; `status` is pending/running/pass/fail/skipped. "Ship" is not
+        emitted here — the dashboard derives it from the existing checkpoint event."""
+        self.emit({"type": "dle_stage", "stage": stage, "status": status, "detail": detail})
+
+    def review_brief_event(self, brief) -> None:
+        """Fired once per shipped turn — the ranked "what to actually read"
+        list from verify/review_risk.py. SSE-only, same as dle_stage_event;
+        not persisted to the store, the dashboard renders it live."""
+        self.emit({"type": "review_brief", **brief.to_dict(), "summary": brief.summary_line()})
 
 
 def _pick_idea(secrets: UserSecrets, provider: Optional[LLMProvider], seed: str, project_idea: str, demo: bool) -> tuple:
@@ -116,10 +132,14 @@ def _pick_idea(secrets: UserSecrets, provider: Optional[LLMProvider], seed: str,
     return "Local-first developer automation tool", [bundle.to_context_block()] if bundle.answer else []
 
 
-def _build_prompt(*, idea: str, plan: str, brand: ProductBrand, goal: str, turn: int, continuity_context: str) -> str:
+def _build_prompt(
+    *, idea: str, plan: str, brand: ProductBrand, goal: str, turn: int, continuity_context: str,
+    dependency_context: str = "",
+) -> str:
     brand_block = brand.to_context_block()
     header = f"# Supersonic — build turn {turn}" if turn > 1 else "# Supersonic — build turn 1 (kickoff)"
     task_block = f"## Task\n{goal}" if turn > 1 else f"## Product idea\n{idea}"
+    dependency_block = f"\n{dependency_context}\n" if dependency_context else ""
     return f"""{header}
 
 {task_block}
@@ -130,7 +150,7 @@ def _build_prompt(*, idea: str, plan: str, brand: ProductBrand, goal: str, turn:
 {plan}
 
 {continuity_context}
-
+{dependency_block}
 ## Instructions
 - Push toward the plan concretely — real source files, not just markdown.
 - Respect every invariant listed above; do not repeat any listed known failure.
@@ -213,18 +233,21 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
         ctx.checkpoint_event(init_checkpoint, verified=True)
         last_good = init_checkpoint
 
-        race_agents = list(dict.fromkeys([secrets.default_agent, *secrets.race_agents])) if secrets.race_enabled else []
-        bandit = AgentBandit(workdir, race_agents) if len(race_agents) >= 2 else None
-
         ctx.emit({"type": "setup_complete", "github_url": github_url or "", "linear_url": linear_url or ""})
 
         # ---- loop ----
         recent_diffs: List[str] = []
         next_follow_up = ""
         turns_completed = 0
-        race_turns_used = 0
         last_gate: Optional[GateResult] = None
         max_turns = min(SAFETY_MAX_TURNS, max(secrets.max_turn_budget, 1))
+        chosen_agent = agent_kind
+        # Rolling baseline for the DLE telemetry gate's perf-regression check —
+        # each turn's post-change median becomes the next turn's pre-change
+        # baseline. Empty until the first successful telemetry run, at which
+        # point regression detection naturally has nothing to compare against
+        # (see verify/telemetry_gate.compute_regression).
+        telemetry_baseline: List[float] = []
 
         turn = 0
         while turn < max_turns:
@@ -233,14 +256,36 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
             goal = idea if turn == 1 else (next_follow_up or "Continue building toward the plan.")
             ctx.emit({"type": "turn_started", "turn": turn, "goal": goal})
 
-            task_type = classify_task(goal)
             retrieval = graph.retrieve(goal, token_budget=secrets.ledger_context_budget, current_turn=turn)
-            prompt = _build_prompt(idea=idea, plan=plan, brand=brand, goal=goal, turn=turn, continuity_context=retrieval.context_block)
+
+            # DLE stage 1 — Dependency Mapper: cheap static-import scoping hint,
+            # folded into the prompt so the agent factors changes toward files
+            # that actually relate to this turn's goal. See dependency_mapper.py
+            # for why this is deliberately NOT LSP-grade resolution.
+            dependency_context = ""
+            if not demo and secrets.dle_dependency_mapper:
+                ctx.dle_stage_event("factor", "running")
+                try:
+                    target_graph = build_target_graph(workdir, goal)
+                    dependency_context = target_graph.to_context_block()
+                    ctx.dle_stage_event(
+                        "factor", "pass",
+                        f"{len(target_graph.files)} file(s) selected (keywords: {', '.join(target_graph.goal_keywords) or 'none'})",
+                    )
+                except Exception:
+                    logger.exception("dependency mapper failed, continuing without it")
+                    ctx.dle_stage_event("factor", "fail", "mapper error — continuing without a scoped file list")
+            else:
+                ctx.dle_stage_event("factor", "skipped", "demo mode" if demo else "disabled in settings")
+
+            prompt = _build_prompt(
+                idea=idea, plan=plan, brand=brand, goal=goal, turn=turn,
+                continuity_context=retrieval.context_block, dependency_context=dependency_context,
+            )
 
             ctx.start_phase(f"turn-{turn}", agent_kind.title(), f"Turn {turn}…", stage="loop")
             ctx.agent_line(f"─── Turn {turn} ───")
 
-            chosen_agent = agent_kind
             gate: GateResult
             diff = ""
 
@@ -248,34 +293,159 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                 agent_result = AgentResult(agent=agent_kind, success=True, output="[demo] simulated build turn", command="demo")
                 ctx.agent_line(agent_result.output)
                 diff = ""
+                ctx.dle_stage_event("patch", "skipped", "demo mode")
+                ctx.dle_stage_event("shield", "skipped", "demo mode")
+                ctx.dle_stage_event("telemetry", "skipped", "demo mode")
+                ctx.dle_stage_event("deptrust", "skipped", "demo mode")
                 gate = run_gate(workdir, provider=None, goal=goal, diff="", invariants=[], recent_diffs=[], min_signals_pass=secrets.verify_min_signals_pass)
-            elif bandit is not None and race_turns_used < secrets.max_race_turns and bandit.should_race(task_type):
-                outcome = run_race(
-                    base_workdir=workdir, task_type=task_type, agents=race_agents, secrets=secrets, prompt=prompt,
-                    provider=provider, goal=goal, invariants=[f"{i.title}: {i.body}" for i in ledger.invariants()],
-                    recent_diffs=recent_diffs, min_signals_pass=secrets.verify_min_signals_pass,
-                    challenger_turn_cap=secrets.race_challenger_turn_cap,
-                    on_line=lambda agent, line: ctx.agent_line(f"[{agent}] {line}"),
-                )
-                race_turns_used += 1
-                bandit.record_result(task_type, outcome.winner, [e.agent for e in outcome.entrants])
-                ctx.race_event(turn, outcome)
-                chosen_agent = outcome.winner
-                winner_entrant = next(e for e in outcome.entrants if e.agent == outcome.winner)
-                agent_result = winner_entrant.result
-                gate = winner_entrant.gate
-                diff = checkpoints.diff_since(last_good)
             else:
-                if bandit is not None:
-                    chosen_agent = bandit.best_agent(task_type)
                 runner = CodingAgentRunner(chosen_agent, secrets)
-                agent_result = runner.run(prompt, workdir, on_line=ctx.agent_line)
+
+                # DLE stage 2 — patch-diff mode (optional). Falls back to the
+                # normal full-file-rewrite path on any failure; never blocks a turn.
+                if secrets.dle_patch_diff_mode:
+                    ctx.dle_stage_event("patch", "running")
+                    patch_result = run_patch_diff_turn(runner, prompt, workdir, on_line=ctx.agent_line)
+                    if patch_result.applied:
+                        ctx.dle_stage_event("patch", "pass", f"applied cleanly in {patch_result.attempts} attempt(s)")
+                        agent_result = patch_result.agent_result
+                        ctx.agent_line(f"[patch-diff mode] applied cleanly in {patch_result.attempts} attempt(s)")
+                    else:
+                        ctx.dle_stage_event("patch", "fail", f"fell back to full-file rewrite: {patch_result.fallback_reason}")
+                        ctx.agent_line(
+                            f"[patch-diff mode] falling back to full-file rewrite: {patch_result.fallback_reason}"
+                        )
+                        agent_result = runner.run(prompt, workdir, on_line=ctx.agent_line)
+                else:
+                    ctx.dle_stage_event("patch", "skipped", "disabled in settings")
+                    agent_result = runner.run(prompt, workdir, on_line=ctx.agent_line)
+
                 diff = checkpoints.diff_since(last_good)
-                gate = run_gate(
-                    workdir, provider=provider, goal=goal, diff=diff,
-                    invariants=[f"{i.title}: {i.body}" for i in ledger.invariants()],
-                    recent_diffs=recent_diffs, min_signals_pass=secrets.verify_min_signals_pass,
-                )
+
+                # DLE stage 3 — Syntax Shield, before the expensive four-signal gate.
+                shield_result = None
+                if secrets.dle_syntax_shield:
+                    ctx.dle_stage_event("shield", "running")
+                    shield_result = run_syntax_shield(workdir, diff)
+                    if shield_result.ran and not shield_result.ok:
+                        ctx.agent_line("[syntax shield] syntax error detected — issuing one corrective re-prompt")
+                        corrective_prompt = f"{prompt}\n\n{shield_result.reprompt}"
+                        runner.run(corrective_prompt, workdir, on_line=ctx.agent_line)
+                        diff = checkpoints.diff_since(last_good)
+                        shield_result = run_syntax_shield(workdir, diff)
+                    if shield_result.ran:
+                        if shield_result.ok:
+                            ctx.dle_stage_event("shield", "pass", f"{len(shield_result.checked_files)} file(s) checked, no syntax errors")
+                        else:
+                            ctx.dle_stage_event("shield", "fail", f"unresolved after re-prompt: {', '.join(shield_result.errors.keys())}")
+                    else:
+                        ctx.dle_stage_event("shield", "skipped", "no changed files to check")
+                else:
+                    ctx.dle_stage_event("shield", "skipped", "disabled in settings")
+
+                if shield_result is not None and shield_result.ran and not shield_result.ok:
+                    # Still broken after one auto-corrective re-prompt — skip the
+                    # expensive gate entirely (tests/lint/critic would just fail
+                    # for the same reason) and treat this as a failed turn.
+                    broken = ", ".join(shield_result.errors.keys())
+                    gate = GateResult(
+                        passed=False,
+                        signals_ran=1,
+                        signals_passed=0,
+                        tests=CheckResult(name="Tests"),
+                        lint=CheckResult(name="Lint/typecheck"),
+                        critic=CriticVerdict(),
+                        thrash=ThrashVerdict(),
+                        summary=f"Syntax Shield failed after one auto-corrective re-prompt: {broken}",
+                    )
+                else:
+                    # DLE stage 4 — Telemetry Gate (optional fifth signal), auto-
+                    # detected and auto-skipped when not applicable/available.
+                    telemetry_verdict: Optional[TelemetryVerdict] = None
+                    if secrets.dle_telemetry_gate:
+                        ctx.dle_stage_event("telemetry", "running")
+                        try:
+                            telemetry_verdict = run_telemetry_gate(
+                                workdir, enabled=True, baseline_samples=telemetry_baseline,
+                            )
+                            if telemetry_verdict.ran:
+                                telemetry_baseline = [telemetry_verdict.current_median_ms] * 3
+                                if telemetry_verdict.perf_regression:
+                                    ctx.dle_stage_event(
+                                        "telemetry", "fail",
+                                        f"perf regression: {telemetry_verdict.baseline_median_ms:.0f}ms -> {telemetry_verdict.current_median_ms:.0f}ms",
+                                    )
+                                elif not telemetry_verdict.passed:
+                                    ctx.dle_stage_event("telemetry", "fail", "console errors or layout issue detected")
+                                else:
+                                    ctx.dle_stage_event("telemetry", "pass", f"median {telemetry_verdict.current_median_ms:.0f}ms, no regression")
+                            else:
+                                ctx.dle_stage_event("telemetry", "skipped", telemetry_verdict.skipped_reason or "no frontend dev server detected")
+                        except Exception:
+                            logger.exception("telemetry gate failed unexpectedly, skipping this signal")
+                            telemetry_verdict = None
+                            ctx.dle_stage_event("telemetry", "skipped", "gate errored, skipped for this turn")
+                    else:
+                        ctx.dle_stage_event("telemetry", "skipped", "disabled in settings")
+
+                    # DLE stage 5 — Dependency Trust Gate: check any newly-added
+                    # package name in this turn's diff against the real PyPI/npm
+                    # registry before paying for the expensive gate. A package
+                    # that doesn't exist gets one corrective re-prompt, same
+                    # pattern as Syntax Shield; still-nonexistent after that
+                    # skips the rest of the gate entirely (it's failing either
+                    # way, no reason to also spend a critic call on it).
+                    dependency_trust_verdict: Optional[DependencyTrustVerdict] = None
+                    if secrets.dle_dependency_trust:
+                        ctx.dle_stage_event("deptrust", "running")
+                        try:
+                            dependency_trust_verdict = run_dependency_trust(workdir, diff)
+                            if dependency_trust_verdict.ran and not dependency_trust_verdict.ok:
+                                ctx.agent_line("[dependency trust] unverifiable package detected — issuing one corrective re-prompt")
+                                corrective_prompt = f"{prompt}\n\n{dependency_trust_verdict.reprompt}"
+                                runner.run(corrective_prompt, workdir, on_line=ctx.agent_line)
+                                diff = checkpoints.diff_since(last_good)
+                                dependency_trust_verdict = run_dependency_trust(workdir, diff)
+                            if dependency_trust_verdict.ran:
+                                if dependency_trust_verdict.ok:
+                                    warn = f", {len(dependency_trust_verdict.suspicious)} flagged as new" if dependency_trust_verdict.suspicious else ""
+                                    ctx.dle_stage_event("deptrust", "pass", f"{len(dependency_trust_verdict.trusted)} package(s) verified{warn}")
+                                else:
+                                    bad = ", ".join(f.name for f in dependency_trust_verdict.critical)
+                                    ctx.dle_stage_event("deptrust", "fail", f"unresolved after re-prompt: {bad}")
+                            else:
+                                ctx.dle_stage_event("deptrust", "skipped", "no new dependencies in this turn")
+                        except Exception:
+                            logger.exception("dependency trust gate failed unexpectedly, skipping this signal")
+                            dependency_trust_verdict = None
+                            ctx.dle_stage_event("deptrust", "skipped", "gate errored, skipped for this turn")
+                    else:
+                        ctx.dle_stage_event("deptrust", "skipped", "disabled in settings")
+
+                    if dependency_trust_verdict is not None and dependency_trust_verdict.ran and not dependency_trust_verdict.ok:
+                        # Still unverifiable after one corrective re-prompt — skip
+                        # the expensive gate (tests/lint/critic can't save a turn
+                        # that's shipping a hallucinated dependency) and fail now.
+                        bad = ", ".join(f.name for f in dependency_trust_verdict.critical)
+                        gate = GateResult(
+                            passed=False,
+                            signals_ran=1,
+                            signals_passed=0,
+                            tests=CheckResult(name="Tests"),
+                            lint=CheckResult(name="Lint/typecheck"),
+                            critic=CriticVerdict(),
+                            thrash=ThrashVerdict(),
+                            summary=f"Dependency Trust Gate failed after one auto-corrective re-prompt: {bad}",
+                            dependency_trust=dependency_trust_verdict,
+                        )
+                    else:
+                        gate = run_gate(
+                            workdir, provider=provider, goal=goal, diff=diff,
+                            invariants=[f"{i.title}: {i.body}" for i in ledger.invariants()],
+                            recent_diffs=recent_diffs, min_signals_pass=secrets.verify_min_signals_pass,
+                            telemetry=telemetry_verdict,
+                            dependency_trust=dependency_trust_verdict,
+                        )
 
             recent_diffs.append(diff)
             recent_diffs = recent_diffs[-5:]
@@ -288,6 +458,25 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                 new_checkpoint = checkpoints.create(turn, goal[:150])
                 last_good = new_checkpoint
                 ctx.checkpoint_event(new_checkpoint, verified=True)
+
+                # Review Risk only runs on turns that shipped — a rolled-back
+                # turn needs nothing, it's already gone. This is the "what
+                # should a human actually read" layer, not another pass/fail
+                # gate: it never blocks a turn, it only ranks what already
+                # passed. See verify/review_risk.py for why this is the bet.
+                if not demo and secrets.dle_review_risk and diff.strip():
+                    try:
+                        dep_findings = list(gate.dependency_trust.suspicious) + list(gate.dependency_trust.critical)
+                        brief = build_review_brief(workdir, turn, diff, dependency_findings=dep_findings)
+                        ctx.review_brief_event(brief)
+                        if brief.high_count:
+                            ledger.record_decision(
+                                turn, f"Turn {turn}: {brief.high_count} high-risk file(s) shipped",
+                                brief.summary_line(), tags=["review-risk"],
+                            )
+                    except Exception:
+                        logger.exception("review risk scoring failed, continuing without it")
+
                 if not demo and git_ops.has_remote(workdir):
                     github_ship(workdir, mode="push")
                 ctx.finish_phase(f"turn-{turn}", "Verified", success=True, stage="loop")
@@ -345,7 +534,6 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
             "agent": {"kind": agent_kind, "success": build_complete},
             "tracking": {"github_url": github_url or "", "linear_url": linear_url or ""},
             "verify": last_gate.to_dict() if last_gate else {},
-            "bandit_win_rates": bandit.win_rates() if bandit else {},
             "checkpoints": len(checkpoints.list()),
             "ledger_stats": ledger.stats(),
             "pr_url": pr_url or "",

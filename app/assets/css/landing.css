@@ -10,7 +10,7 @@
 .cr-landing-bg {
   position: fixed;
   inset: 0;
-  background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(74, 144, 164, 0.1), transparent);
+  background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(226, 84, 42, 0.1), transparent);
   pointer-events: none;
 }
 .cr-landing-main {
@@ -22,25 +22,24 @@
 .cr-landing-logo {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
-  font-family: var(--sans);
-  font-size: 1.15rem;
-  font-weight: 500;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
   letter-spacing: -0.01em;
-  text-transform: lowercase;
   margin-bottom: 40px;
 }
 .cr-landing h1 {
-  font-family: var(--serif);
-  font-size: clamp(36px, 7vw, 52px);
-  font-weight: 400;
-  line-height: 1.05;
+  font-family: var(--sans);
+  font-size: clamp(30px, 6vw, 44px);
+  font-weight: 650;
+  line-height: 1.15;
   letter-spacing: -0.02em;
   margin: 0 0 20px;
 }
 .cr-landing-lead {
-  font-size: 16px;
-  line-height: 1.55;
+  font-size: 15px;
+  line-height: 1.6;
   color: var(--text-secondary);
   margin: 0 0 28px;
 }
@@ -56,19 +55,20 @@
 }
 .cr-landing-flow span:nth-child(odd) {
   padding: 4px 10px;
-  background: var(--sonic-accent-soft);
+  background: var(--accent-soft);
   border-radius: 999px;
-  color: #3d6a9e;
-  border: 0.5px solid rgba(107, 155, 209, 0.3);
+  color: var(--accent);
+  border: 1px solid rgba(226, 84, 42, 0.3);
 }
 .cr-landing-cta {
-  padding: 14px 32px;
-  font-size: 15px;
+  padding: 13px 30px;
+  font-size: 13px;
   border-radius: var(--radius);
 }
 .cr-landing-foot {
   margin-top: 32px;
-  font-size: 13px;
+  font-family: var(--mono);
+  font-size: 12px;
   color: var(--text-muted);
 }
 .cr-landing-foot a { color: var(--text-secondary); }

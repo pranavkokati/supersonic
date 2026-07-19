@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "supersonic"
 version = "1.0.0"
-description = "Supersonic — a Checkpoint/Verify/Rollback build loop with a structured Continuity Graph memory and bandit-gated Agent Racing across coding-agent backends."
+description = "Supersonic — a Checkpoint/Verify/Rollback build loop with a structured Continuity Graph memory."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"

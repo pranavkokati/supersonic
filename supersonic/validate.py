@@ -24,11 +24,5 @@ def validate_live_run(secrets: UserSecrets, agent: AgentKind) -> None:
     if info and not info.get("available"):
         problems.append(f"'{agent}' coding-agent CLI not found on PATH")
 
-    if secrets.race_enabled:
-        for name in secrets.race_agents:
-            race_info = agents.get(name)
-            if race_info and not race_info.get("available"):
-                problems.append(f"race agent '{name}' CLI not found on PATH")
-
     if problems:
         raise RunValidationError("Not ready to run: " + "; ".join(problems))

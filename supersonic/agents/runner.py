@@ -1,8 +1,7 @@
 """Coding agent adapters — Claude Code, Codex, OpenCode, Cursor Agent, Aider.
 
 Bring-your-own-agent: Supersonic doesn't lock you into one coding-agent CLI.
-Any of these can be the default backend, and any two can race each other
-under Bandit-Gated Agent Racing (see loop/bandit.py, loop/race.py).
+Any of these can be the default backend for a project.
 """
 
 from __future__ import annotations
@@ -129,17 +128,11 @@ def _write_prompt(workdir: Path, prompt: str) -> Path:
 
 
 class CodingAgentRunner:
-    """Runs one coding-agent CLI to completion on a prompt.
+    """Runs one coding-agent CLI to completion on a prompt."""
 
-    `turn_cap`, when set, scales down the timeout — used by Agent Racing to
-    bound a challenger's worst-case cost, since the loser's work is
-    discarded regardless of how long it ran.
-    """
-
-    def __init__(self, kind: AgentKind, secrets: UserSecrets, turn_cap: Optional[int] = None):
+    def __init__(self, kind: AgentKind, secrets: UserSecrets):
         self.kind = kind
         self.secrets = secrets
-        self.turn_cap = turn_cap
 
     def run(self, prompt: str, workdir: Path, on_line: Optional[LineCallback] = None) -> AgentResult:
         workdir.mkdir(parents=True, exist_ok=True)
@@ -149,8 +142,7 @@ class CodingAgentRunner:
         if on_line:
             on_line(f"$ {' '.join(cmd)}")
         mapper = _cursor_stream_line if self.kind == "cursor" else None
-        timeout = 1800 if self.turn_cap is None else max(120, int(1800 * (self.turn_cap / 30)))
-        return _run_streaming(cmd, workdir, env, on_line=on_line, line_mapper=mapper, timeout=timeout)
+        return _run_streaming(cmd, workdir, env, on_line=on_line, line_mapper=mapper, timeout=1800)
 
     def _env(self) -> Dict[str, str]:
         e: Dict[str, str] = {}

@@ -25,8 +25,8 @@ checkpoint/rollback mechanism *is* git, not a bespoke snapshot format.
   │          │           │            │          │
   ▼          ▼           ▼            ▼          ▼
 providers/  memory/    agents/      verify/   integrations/
-(LLM calls) (Continuity (runner,    (gate:    (git_ops,
-             Graph)      worktree)   4 signals) github, linear)
+(LLM calls) (Continuity (runner)    (gate:    (git_ops,
+             Graph)                 4 signals) github, linear)
 ```
 
 ---
@@ -39,9 +39,7 @@ Every turn:
    from the ledger, plus *all* invariants and open failures unconditionally.
 2. **Checkpoint reference** — the loop already holds `last_good_checkpoint`, a git commit tagged by
    `CheckpointManager` the last time a turn passed verification.
-3. **Build** — either a single `CodingAgentRunner`, or, if Agent Racing is enabled and
-   `AgentBandit.should_race()` says the outcome for this task type is still uncertain, two agents race
-   concurrently in isolated git worktrees (`loop/race.py`, `agents/worktree.py`).
+3. **Build** — `CodingAgentRunner` runs the project's one configured agent against the current prompt.
 4. **Verify** — `verify.gate.run_gate()` runs up to four independent signals (tests, lint/typecheck, an LLM
    goal-satisfaction critic, a diff-similarity thrash detector) and requires enough of the signals that
    actually ran to pass.
@@ -53,6 +51,11 @@ Every turn:
 This is why the loop can't silently drift the way a single-call router can: nothing is kept unless it's
 proven, and every failure becomes context the next attempt can't ignore.
 
+There is deliberately no multi-agent racing here. An earlier design ran two coding-agent CLIs concurrently
+and picked a winner via a Thompson-sampling bandit — it doubled LLM spend on every turn it fired for, in
+exchange for a benefit the Verify gate already delivers for free (rejecting bad output regardless of which
+agent produced it). It's gone; one agent per project, no bandit tuning.
+
 ---
 
 ## Core modules
@@ -63,13 +66,10 @@ proven, and every failure becomes context the next attempt can't ignore.
 | `loop/checkpoint.py` | Git-native commit + tag of verified state |
 | `loop/rollback.py` | Hard git reset to the last verified checkpoint |
 | `loop/planner.py` | Provider-agnostic plan / brand / next-turn routing |
-| `loop/bandit.py` | Thompson-sampling bandit gating Agent Racing |
-| `loop/race.py` | Worktree-isolated concurrent agent racing |
 | `memory/` | Continuity Graph — `schema.py` (entries), `ledger.py` (append-only store), `graph.py` (retrieval), `distill.py` (compaction) |
 | `verify/` | `qa.py` (tests/lint), `critic.py` (goal satisfaction), `thrash.py` (oscillation detector), `gate.py` (combined decision) |
 | `providers/` | `anthropic_provider.py`, `openai_provider.py`, `ollama_provider.py`, auto-detected in `__init__.py` |
 | `agents/runner.py` | Spawn Claude Code / Codex / OpenCode / Cursor / Aider CLIs |
-| `agents/worktree.py` | Git worktree isolation for racing entrants |
 | `integrations/git_ops.py`, `integrations/github.py` | Native git + `gh` CLI shipping — no middleman |
 | `integrations/linear.py`, `integrations/notify.py` | Optional, off unless configured |
 | `research/tavily.py` | Optional enrichment, never required |
@@ -90,15 +90,14 @@ proven, and every failure becomes context the next attempt can't ignore.
    - Optional GitHub repo creation (`gh`), optional Linear issue
 4. **Build loop** (until the planner says done *and* the latest verification passed, or `max_turn_budget` hits)
    - Retrieve Continuity Graph context for this turn's goal
-   - Build (single agent, or bandit-gated race)
+   - Build (the project's configured agent)
    - Verify gate (up to 4 signals)
    - Checkpoint or rollback
    - Route next turn
 5. **Complete** — final ship (PR if `ship_mode=pr`), optional completion webhook, run marked done
 
 Events stream to the dashboard via `GET /api/runs/{id}/stream`. The Continuity Graph and checkpoint history
-are also queryable directly: `GET /api/projects/{id}/ledger`, `GET /api/projects/{id}/checkpoints`,
-`GET /api/projects/{id}/bandit`.
+are also queryable directly: `GET /api/projects/{id}/ledger`, `GET /api/projects/{id}/checkpoints`.
 
 ---
 
@@ -106,7 +105,7 @@ are also queryable directly: `GET /api/projects/{id}/ledger`, `GET /api/projects
 
 | Path | Contents |
 |------|----------|
-| `~/.supersonic/config.json` | Provider keys, default agent, racing config, loop tuning |
+| `~/.supersonic/config.json` | Provider keys, default agent, loop tuning |
 | `~/.supersonic/sonic.db` | Projects and run history |
 | `~/.supersonic/projects/<id>/` | Default project workdirs |
 | `<workdir>/.continuity/ledger.jsonl` | The Continuity Graph — append-only, git-committed with the project |
@@ -121,10 +120,10 @@ are also queryable directly: `GET /api/projects/{id}/ledger`, `GET /api/projects
 |------|---------|
 | `app/landing.html` | Entry — Open Supersonic |
 | `app/onboarding.html` | First-run key setup (one provider key) + tutorial |
-| `app/dashboard.html` | Composer + live run view (checkpoint timeline, Continuity Graph explorer, race leaderboard) + settings |
+| `app/dashboard.html` | Composer + live run view (checkpoint timeline, Continuity Graph explorer) + settings |
 | `web/index.html` | Public marketing site |
 
-Shared design tokens: `style.css` + `sonic.css` (Geist, EB Garamond, accent `#ff6a3d`).
+Shared design tokens: `style.css` + `sonic.css`.
 
 ---
 
@@ -133,7 +132,7 @@ Shared design tokens: `style.css` + `sonic.css` (Geist, EB Garamond, accent `#ff
 `sonic` entry point (`supersonic/cli.py`):
 
 - `serve` — start local UI
-- `run` — one-shot headless loop (`--race` / `--race-with` to enable Agent Racing)
+- `run` — one-shot headless loop
 - `doctor` — validate provider keys, agent CLIs, `git`/`gh` on PATH
 - `projects` / `portfolio` — list local builds
 - `queue-add` / `queue-run` / `schedule` — overnight portfolio queue
@@ -146,5 +145,5 @@ Shared design tokens: `style.css` + `sonic.css` (Geist, EB Garamond, accent `#ff
 python -m pytest tests/ -q
 ```
 
-Covers the bandit's convergence behavior, ledger read/write and retrieval, the verify gate's signal
-aggregation, checkpoint/rollback against a real temp git repo, and provider auto-detection.
+Covers ledger read/write and retrieval, the verify gate's signal aggregation, checkpoint/rollback against a
+real temp git repo, and provider auto-detection.

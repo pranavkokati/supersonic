@@ -1,36 +1,21 @@
 /* Supersonic — panels for the parts that don't exist anywhere else:
-   the checkpoint timeline, the Continuity Graph explorer, and the
-   bandit-gated Agent Racing leaderboard. */
+   the checkpoint timeline and the Continuity Graph explorer. */
 
 .sn-checkpoint-track { display: flex; flex-wrap: wrap; gap: 6px; }
 .sn-checkpoint-node {
-  width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 4px; display: flex; align-items: center; justify-content: center;
   font-family: var(--mono); font-size: 10px; font-weight: 600; color: #fff; cursor: default;
-  background: var(--sonic-good);
+  background: var(--good);
 }
-.sn-checkpoint-node.rolled-back { background: var(--sonic-bad); }
+.sn-checkpoint-node.rolled-back { background: var(--bad); }
 .sn-checkpoint-node[title] { position: relative; }
 
 .sn-ledger-list { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; }
 .sn-ledger-entry { border-left: 2px solid var(--line-strong); padding: 4px 0 4px 10px; font-size: 12px; }
-.sn-ledger-entry.invariant { border-left-color: var(--sonic-accent); }
-.sn-ledger-entry.failure { border-left-color: var(--sonic-bad); }
-.sn-ledger-entry.decision { border-left-color: var(--sonic-good); }
+.sn-ledger-entry.invariant { border-left-color: var(--accent); }
+.sn-ledger-entry.failure { border-left-color: var(--bad); }
+.sn-ledger-entry.decision { border-left-color: var(--good); }
 .sn-ledger-entry.lesson { border-left-color: #8a7fd8; }
 .sn-ledger-kind { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
 .sn-ledger-title { color: var(--text); font-weight: 500; margin: 2px 0; }
 .sn-ledger-body { color: var(--text-secondary); }
-
-.sn-race-leaderboard { display: flex; flex-direction: column; gap: 12px; }
-.sn-race-task-group .sn-race-task-label { font-family: var(--mono); font-size: 10px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; }
-.sn-race-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.sn-race-agent-name { font-size: 12px; width: 60px; flex-shrink: 0; }
-.sn-race-bar-track { flex: 1; height: 6px; border-radius: 999px; background: var(--bg-muted); overflow: hidden; }
-.sn-race-bar-fill { height: 100%; background: var(--sonic-accent); }
-.sn-race-pct { font-family: var(--mono); font-size: 11px; color: var(--text-muted); width: 34px; text-align: right; }
-
-.sn-race-log { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
-.sn-race-entrant { border: 0.5px solid var(--line); border-radius: 8px; padding: 10px; }
-.sn-race-entrant.winner { border-color: var(--sonic-good); background: var(--sonic-good-soft); }
-.sn-race-entrant-head { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; }
-.sn-race-entrant-score { font-family: var(--mono); color: var(--text-muted); font-weight: 400; }

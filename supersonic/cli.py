@@ -15,7 +15,7 @@ from supersonic.config import ensure_dirs, load_secrets, save_secrets
 from supersonic.providers import available_providers
 from supersonic.store import create_project, create_run, init_db, list_projects
 
-app = typer.Typer(name="sonic", help="Supersonic — Checkpoint/Verify/Rollback build loop with bandit-gated agent racing")
+app = typer.Typer(name="sonic", help="Supersonic — Checkpoint/Verify/Rollback build loop with a structured Continuity Graph memory")
 console = Console()
 
 
@@ -31,8 +31,6 @@ def serve(host: str = "127.0.0.1", port: int = 8787) -> None:
 def run(
     idea: str = typer.Option("", help="Seed idea (left blank, the loop grounds one from research)"),
     agent: str = typer.Option("claude", help="claude | codex | opencode | cursor | aider"),
-    race: bool = typer.Option(False, "--race", help="Enable bandit-gated Agent Racing for this run"),
-    race_with: str = typer.Option("", help="Comma-separated extra agents to race against --agent"),
     demo: bool = typer.Option(False, "--demo", help="Run without live provider/agent calls"),
 ) -> None:
     """Run one full build loop from the CLI."""
@@ -46,11 +44,6 @@ def run(
         raise typer.BadParameter(
             "No LLM provider configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY, or run a local `ollama serve`."
         )
-
-    if race:
-        secrets.race_enabled = True
-        secrets.race_agents = [a.strip() for a in race_with.split(",") if a.strip()] or secrets.race_agents
-        save_secrets(secrets)
 
     from supersonic.loop.orchestrator import run_factory
 
@@ -81,10 +74,6 @@ def doctor() -> None:
 
     for agent_info in available_agents():
         table.add_row(f"Agent: {agent_info['id']}", "✓ on PATH" if agent_info["available"] else "not found")
-
-    table.add_row("Agent Racing", "enabled" if sec.race_enabled else "disabled (default)")
-    if sec.race_enabled:
-        table.add_row("Race roster", ", ".join(sec.race_agents) or "(none configured)")
 
     console.print(table)
 

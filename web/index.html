@@ -3,16 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Supersonic — The build loop that only moves forward on evidence</title>
-  <meta name="description" content="Supersonic — a local, open-source Checkpoint/Verify/Rollback build loop with a structured Continuity Graph memory and bandit-gated Agent Racing across coding-agent backends." />
+  <title>Supersonic — Ships fast, tells you exactly what to check before you trust it</title>
+  <meta name="description" content="Supersonic pairs an autonomous Checkpoint/Verify/Rollback build loop with Review Risk and a Dependency Trust Gate: every shipped turn's changed files are ranked by what to check, and every new dependency is checked against the real registry before it ships." />
   <meta property="og:title" content="Supersonic" />
-  <meta property="og:description" content="Checkpoint → Verify → Rollback. A structured Continuity Graph instead of a truncated transcript. Bandit-gated racing between coding agents. One API key. Fully local." />
+  <meta property="og:description" content="Review Risk ranks what to actually check on every shipped turn. Dependency Trust Gate blocks hallucinated packages before they ship. Checkpoint → Verify → Rollback underneath. One API key. Fully local." />
   <meta property="og:type" content="website" />
-  <meta name="theme-color" content="rgb(251,251,248)" />
-  <link rel="stylesheet" href="assets/css/style.css?v=2" />
-  <link rel="stylesheet" href="assets/css/sonic.css?v=1" />
+  <meta name="theme-color" content="#fbf9f6" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/style.css?v=5" />
+  <link rel="stylesheet" href="assets/css/sonic.css?v=3" />
   <link rel="stylesheet" href="assets/css/animations.css?v=1" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 14 L14 3 L14 9 L21 9 L10 21 L10 15 Z' fill='%23ff6a3d'/></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 14 L14 3 L14 9 L21 9 L10 21 L10 15 Z' fill='%23e2542a'/></svg>" />
 </head>
 <body class="df-site">
   <div class="df-bg-top" aria-hidden="true"></div>
@@ -21,7 +24,7 @@
     <div class="df-header-inner">
       <a href="index.html" class="df-logo">
         <svg class="df-logo-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M3 14 L14 3 L14 9 L21 9 L10 21 L10 15 Z" fill="none" stroke="#ff6a3d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M3 14 L14 3 L14 9 L21 9 L10 21 L10 15 Z" fill="none" stroke="#e2542a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         <span class="df-logo-word">supersonic</span>
       </a>
@@ -54,12 +57,15 @@
       <section class="hero-df">
         <div class="hero-df-inner">
           <div class="hero-df-copy">
-            <h1 class="hero-df-title">The build loop that only moves forward on evidence.</h1>
+            <span class="hero-df-eyebrow">local · open source · one API key</span>
+            <h1 class="hero-df-title">Ships fast. Tells you exactly what to check before you trust it.</h1>
             <p class="hero-df-lead">
-              Local, open source, one API key. Every turn is committed only if it passes a four-signal Verify
-              gate — otherwise it's rolled back automatically and the failure is written into a structured
-              Continuity Graph so the next attempt doesn't repeat it. Optionally race two coding agents against
-              each other and let a bandit learn which one wins at your kind of work.
+              A controlled study of experienced developers using AI coding tools found task time went
+              <em>up</em> — verification overhead ate the speedup. Supersonic's Review Risk ranks every
+              shipped turn's changed files by blast radius, sensitive-path exposure, and missing test
+              coverage, so you know which two files need five careful minutes and which twelve are safe
+              to skim. Checkpoint → Verify → Rollback underneath means nothing ships until it earns it
+              in the first place.
             </p>
             <div class="hero-df-actions">
               <a href="#quickstart" class="btn btn-pear">Get started</a>
@@ -69,62 +75,102 @@
               <span>Plan</span><span class="arrow">→</span>
               <span>Checkpoint</span><span class="arrow">→</span>
               <span>Agent</span><span class="arrow">→</span>
+              <span>Dependency Trust</span><span class="arrow">→</span>
               <span>Verify</span><span class="arrow">→</span>
-              <span>Ship</span>
+              <span>Ship</span><span class="arrow">→</span>
+              <span>Review Risk</span>
             </div>
           </div>
           <div class="hero-df-visual">
-            <div class="product-mock" id="product-mock">
-              <div class="mock-toolbar">
-                <div class="mock-dots"><span></span><span></span><span></span></div>
-                <span class="mock-title">Supersonic · localhost:8787</span>
-                <span class="mock-badge">local · your keys</span>
+            <div class="ship-card">
+              <div class="ship-card-head">
+                <span class="ship-card-label">Turn 6 shipped</span>
+                <span class="ship-card-status">verified · 4/4 signals</span>
               </div>
-              <div class="mock-layout">
-                <aside class="mock-sidebar">
-                  <p class="mock-label">Loop</p>
-                  <ul class="mock-stack" id="mock-stack">
-                    <li class="active" data-phase="plan">Plan</li>
-                    <li data-phase="checkpoint">Checkpoint</li>
-                    <li data-phase="agent">Agent</li>
-                    <li data-phase="verify">Verify</li>
-                    <li data-phase="ship">Ship</li>
-                  </ul>
-                  <p class="mock-label">Projects</p>
-                  <div class="mock-block">todo-cli · built</div>
-                  <div class="mock-block">api-sync · running</div>
-                </aside>
-                <div class="mock-main">
-                  <div class="mock-query">
-                    <span class="mock-avatar">▶</span>
-                    <p>Run loop</p>
-                  </div>
-                  <div class="mock-agent">
-                    <span class="mock-avatar agent">SN</span>
-                    <div class="mock-response">
-                      <p class="mock-meta">turn 6 · verify 4/4 · checkpoint locked in</p>
-                      <p>MVP scaffolded in ~/.supersonic/projects/a3f2 — Continuity Graph has 14 decisions, 1 invariant, GitHub PR opened.</p>
-                      <div class="mock-phases">
-                        <span class="mock-phase done">plan</span>
-                        <span class="mock-phase done">agent</span>
-                        <span class="mock-phase done">verify</span>
-                        <span class="mock-phase active">ship</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <ul class="ship-card-list">
+                <li class="ship-row high">
+                  <span class="ship-row-level">High</span>
+                  <span class="ship-row-path">app/auth/session.py</span>
+                  <span class="ship-row-note">no test delta · 11 importers</span>
+                </li>
+                <li class="ship-row medium">
+                  <span class="ship-row-level">Medium</span>
+                  <span class="ship-row-path">api/billing/charge.py</span>
+                  <span class="ship-row-note">sensitive path</span>
+                </li>
+                <li class="ship-row low">
+                  <span class="ship-row-level">Low</span>
+                  <span class="ship-row-path">ui/theme.css</span>
+                  <span class="ship-row-note">isolated change</span>
+                </li>
+              </ul>
+              <p class="ship-card-foot">2 of 14 changed files need a close look before this goes further.</p>
             </div>
           </div>
         </div>
       </section>
 
       <section class="section wrap" id="features">
-        <h2 class="section-title-lg">Three ideas, none of them a rename of the usual agent-loop pattern.</h2>
+        <h2 class="section-title-lg">Autonomy is a solved problem. Knowing what to trust isn't.</h2>
+      </section>
+
+      <section class="wrap">
+        <div class="stat-row">
+          <div class="stat-card accent">
+            <span class="stat-card-n">6</span>
+            <span class="stat-card-l">verify signals per turn</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-card-n">1</span>
+            <span class="stat-card-l">API key, nothing hosted</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-card-n">0</span>
+            <span class="stat-card-l">telemetry sent home</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-card-n">100%</span>
+            <span class="stat-card-l">local execution</span>
+          </div>
+        </div>
       </section>
 
       <section class="df-features">
         <div class="df-features-inner">
+          <article class="df-feature-card">
+            <div class="df-feature-visual df-feature-visual--warm">
+              <div class="df-feature-inner">
+                <ul class="feat-int-list">
+                  <li><strong>app/auth/session.py</strong><span class="feat-int-bad">HIGH</span></li>
+                  <li><strong>api/billing/charge.py</strong><span class="feat-int-warn">MEDIUM</span></li>
+                  <li><strong>ui/theme.css</strong><span class="feat-int-ok">LOW</span></li>
+                </ul>
+                <p class="feat-stat">2/14<span>files that actually need your five minutes</span></p>
+              </div>
+            </div>
+            <div class="df-feature-copy">
+              <h3>Review Risk: what to check, not just what changed.</h3>
+              <p>Every shipped turn's changed files ranked by blast radius, sensitive-path exposure, and missing test coverage — the specific failure mode that passes every automated check and still breaks something.</p>
+            </div>
+          </article>
+
+          <article class="df-feature-card">
+            <div class="df-feature-visual df-feature-visual--warm">
+              <div class="df-feature-inner">
+                <ul class="feat-int-list">
+                  <li><strong>some-fake-pkg==1.0</strong><span class="feat-int-bad">NONEXISTENT</span></li>
+                  <li><strong>brand-new-pkg==0.0.1</strong><span class="feat-int-warn">3 DAYS OLD</span></li>
+                  <li><strong>requests==2.31.0</strong><span class="feat-int-ok">TRUSTED</span></li>
+                </ul>
+                <p class="feat-stat">~20%<span>of AI-suggested packages don't exist, per a 2025 USENIX study</span></p>
+              </div>
+            </div>
+            <div class="df-feature-copy">
+              <h3>Dependency Trust Gate: hallucinated packages never ship.</h3>
+              <p>Every new dependency a turn adds is checked against the real PyPI/npm registry before it ships. A package that doesn't exist fails the turn outright — the exact pattern attackers exploit in "slopsquatting," pre-registering the name an agent is predictably going to hallucinate.</p>
+            </div>
+          </article>
+
           <article class="df-feature-card">
             <div class="df-feature-visual df-feature-visual--blue">
               <div class="df-feature-inner">
@@ -139,7 +185,7 @@
             </div>
             <div class="df-feature-copy">
               <h3>Checkpoint → Verify → Rollback.</h3>
-              <p>A turn is committed only if enough of the four signals that actually ran come back positive. A failed turn is hard-reset to the last verified state, not left to compound.</p>
+              <p>A turn is committed only if enough of the four signals that actually ran come back positive. A failed turn is hard-reset to the last verified state, not left to compound. Review Risk only ever looks at what already passed this.</p>
             </div>
           </article>
 
@@ -159,29 +205,12 @@
               <p>Structured decisions, invariants, and failures, retrieved by relevance to the current turn — not a flat context blob trimmed down to fit a budget.</p>
             </div>
           </article>
-
-          <article class="df-feature-card">
-            <div class="df-feature-visual df-feature-visual--warm">
-              <div class="df-feature-inner">
-                <ul class="feat-int-list">
-                  <li><strong>Claude Code</strong><span class="feat-int-ok">CLI</span></li>
-                  <li><strong>Codex</strong><span class="feat-int-ok">CLI</span></li>
-                  <li><strong>Cursor / OpenCode</strong><span class="feat-int-ok">CLI</span></li>
-                  <li><strong>Aider</strong><span class="feat-int-ok">CLI</span></li>
-                </ul>
-              </div>
-            </div>
-            <div class="df-feature-copy">
-              <h3>Bandit-gated Agent Racing.</h3>
-              <p>Turn on racing and two agents compete in isolated git worktrees when the outcome is still uncertain — a Thompson-sampling bandit learns which one wins per task type and stops racing once it knows, so cost decays instead of doubling forever.</p>
-            </div>
-          </article>
         </div>
       </section>
 
       <section class="editorial">
         <div class="wrap">
-          <h2 class="editorial-quote">Autonomous coding loops fail quietly — they drift, they thrash, they forget what they already tried. Supersonic's loop only keeps what it can prove. No hosted keys. No sponsor-locked integration stack. One API key, your machine, your git history as the safety net.</h2>
+          <h2 class="editorial-quote">AI coding tools got faster at writing code. Nobody made reviewing it faster — one controlled study found verification overhead left experienced developers net slower, not faster. Supersonic's loop only ships what it can prove, and tells you exactly where to spend the five minutes you have left. No hosted keys. No sponsor-locked integration stack. One API key, your machine, your git history as the safety net.</h2>
         </div>
       </section>
 
@@ -201,17 +230,27 @@
           <article class="trust-card">
             <p class="trust-label">3 · Build</p>
             <h3>Your agent writes code</h3>
-            <p>Claude Code, Codex, OpenCode, Cursor Agent, or Aider — bring your own CLI, or race two of them.</p>
+            <p>Claude Code, Codex, OpenCode, Cursor Agent, or Aider — bring your own CLI.</p>
           </article>
           <article class="trust-card">
-            <p class="trust-label">4 · Verify</p>
-            <h3>Four independent signals</h3>
-            <p>Tests, lint/typecheck, an LLM goal-satisfaction critic, and a diff-similarity thrash detector.</p>
+            <p class="trust-label">4 · Dependency Trust</p>
+            <h3>Every new package checked before it ships</h3>
+            <p>Newly-added dependencies are verified against the real PyPI/npm registry. A package that doesn't exist fails the turn — one corrective re-prompt, then rollback, before it ever reaches the expensive gate below.</p>
           </article>
           <article class="trust-card">
-            <p class="trust-label">5 · Rollback or ship</p>
+            <p class="trust-label">5 · Verify</p>
+            <h3>Six independent signals</h3>
+            <p>Tests, lint/typecheck, an LLM goal-satisfaction critic, a diff-similarity thrash detector, an optional browser telemetry check, and the Dependency Trust result above.</p>
+          </article>
+          <article class="trust-card">
+            <p class="trust-label">6 · Rollback or ship</p>
             <h3>Only proven progress sticks</h3>
             <p>Pass → new checkpoint, pushed to GitHub. Fail → hard reset to the last good state, failure logged to the Continuity Graph.</p>
+          </article>
+          <article class="trust-card">
+            <p class="trust-label">7 · Review Risk</p>
+            <h3>Told what to actually check</h3>
+            <p>Every shipped turn's changed files ranked by blast radius, sensitive-path exposure, and missing test coverage — a static heuristic, not another LLM call, so it's instant.</p>
           </article>
           <article class="trust-card">
             <p class="trust-label">Local UI</p>
@@ -223,7 +262,7 @@
 
       <section class="section wrap" id="agents">
         <h2 class="section-title">Supported coding agents</h2>
-        <p class="section-desc" style="margin-top:12px;color:var(--text-secondary);max-width:560px">Install any CLI on your PATH. Pick one per project, or race two of them.</p>
+        <p class="section-desc" style="margin-top:12px;color:var(--text-secondary);max-width:560px">Install any CLI on your PATH. Pick one as your project's default agent.</p>
         <div class="agent-grid">
           <article class="agent-card">
             <h3>Claude Code</h3>
@@ -243,7 +282,7 @@
           </article>
           <article class="agent-card">
             <h3>Aider</h3>
-            <p>The original terminal pair-programmer — works as a drop-in racing partner.</p>
+            <p>The original terminal pair-programmer — works as a drop-in default agent.</p>
           </article>
         </div>
       </section>
@@ -253,7 +292,7 @@
         <div class="quickstart-block">
           <p>Clone, install, onboard, build.</p>
           <pre><span class="cm"># Install</span>
-git clone https://github.com/your-org/supersonic.git
+git clone https://github.com/pranavkokati/supersonic.git
 cd supersonic
 ./bootstrap.sh
 source .venv/bin/activate
@@ -262,21 +301,30 @@ sonic serve
 
 <span class="cm"># Headless</span>
 sonic run --idea <span class="str">"CLI that syncs issues to markdown"</span> --agent claude
-sonic run --agent claude --race --race-with codex
 sonic run --demo
 sonic doctor</pre>
         </div>
         <div class="differentiator-row" id="stack">
+          <span class="differentiator-pill">Review Risk</span>
+          <span class="differentiator-pill">Dependency Trust Gate</span>
           <span class="differentiator-pill">Checkpoint / Verify / Rollback</span>
           <span class="differentiator-pill">Continuity Graph</span>
-          <span class="differentiator-pill">Bandit-Gated Agent Racing</span>
           <span class="differentiator-pill">Provider-agnostic</span>
+          <span class="differentiator-pill">One API key</span>
         </div>
       </section>
 
       <section class="section wrap" id="faq">
         <h2 class="section-title">FAQ</h2>
         <div class="faq-list">
+          <details class="faq-item">
+            <summary>What is Review Risk, actually?</summary>
+            <p>A static heuristic (no LLM call) that runs once a turn ships. It parses the diff, counts how many other files import each changed file (blast radius), checks changed lines and paths against a list of sensitive-surface keywords (auth, payment, permissions, migrations, deletion), and checks whether a matching test file was touched in the same turn. Files score high/medium/low and get a plain-English reason. It has false positives and false negatives — the goal is redirecting a human's five minutes of attention, not replacing judgment.</p>
+          </details>
+          <details class="faq-item">
+            <summary>What is the Dependency Trust Gate?</summary>
+            <p>A pre-flight check that runs before the expensive Verify gate. It reads the turn's diff for any newly-added package (manifest entries in requirements.txt/pyproject.toml/Pipfile/package.json, or a raw install-command line), and checks each one against the real PyPI or npm registry. A package that doesn't exist fails the turn outright — that's "slopsquatting": an attacker pre-registers a name an AI agent is statistically likely to hallucinate, ships malware under it, and waits. It can't stop a malicious install from executing once inside a single turn's working tree (Supersonic doesn't sandbox the coding agent's own shell commands), but it guarantees that dependency never gets checkpointed, shipped, or pushed to GitHub — and the agent gets one corrective re-prompt naming the exact bad package first.</p>
+          </details>
           <details class="faq-item">
             <summary>Is this hosted?</summary>
             <p>No. Supersonic runs entirely on your machine. This website is documentation and overview only.</p>
@@ -287,11 +335,11 @@ sonic doctor</pre>
           </details>
           <details class="faq-item">
             <summary>Do I need four different vendor accounts to try it?</summary>
-            <p>No. One LLM key (Anthropic, OpenAI, or a local Ollama server) is all that's required. GitHub shipping, Linear, research, and racing are all optional and off by default.</p>
+            <p>No. One LLM key (Anthropic, OpenAI, or a local Ollama server) is all that's required. GitHub shipping, Linear, and research enrichment are all optional and off by default.</p>
           </details>
           <details class="faq-item">
-            <summary>Won't Agent Racing double my API costs?</summary>
-            <p>Only while the bandit is still uncertain which agent wins at a given task type. It's Thompson sampling, not always-on racing — the frequency of races decays as it learns, plus a hard per-run ceiling caps the worst case. Off by default either way.</p>
+            <summary>Does it race multiple coding agents against each other?</summary>
+            <p>No, deliberately not. An earlier design ran two agents concurrently and picked a winner with a bandit — it roughly doubled LLM spend for a benefit the Verify gate already delivers for free. It was cut. One configured agent per project.</p>
           </details>
           <details class="faq-item">
             <summary>Can I try without API keys?</summary>

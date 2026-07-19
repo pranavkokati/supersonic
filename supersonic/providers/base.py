@@ -1,8 +1,8 @@
 """Provider abstraction — the common interface every LLM backend implements.
 
-Supersonic never hardcodes a vendor into the planner, critic, or bandit
-classifier. Every LLM call in the system goes through this interface so the
-whole product works with whichever key the user actually has.
+Supersonic never hardcodes a vendor into the planner or critic. Every LLM
+call in the system goes through this interface so the whole product works
+with whichever key the user actually has.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ class LLMProvider(ABC):
 
     name: str = "base"
     default_model: str = ""
-    fast_model: str = ""  # cheap/low-latency model for high-frequency calls (critic, bandit classifier)
+    fast_model: str = ""  # cheap/low-latency model for high-frequency calls (critic, thrash checks)
 
     @abstractmethod
     def complete(
@@ -80,7 +80,7 @@ class LLMProvider(ABC):
         temperature: float = 0.0,
         json_mode: bool = False,
     ) -> CompletionResult:
-        """Route to the cheap/low-latency model — used for the bandit classifier and thrash checks."""
+        """Route to the cheap/low-latency model — used for the thrash detector."""
         return self.complete(
             messages,
             model=self.fast_model or self.default_model,

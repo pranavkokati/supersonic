@@ -30,8 +30,7 @@ without touching a live provider or coding-agent CLI.
 > "Supersonic checkpoints before every turn, builds, and only keeps the change if it clears a four-signal
 > Verify gate — tests, lint, a goal-satisfaction critic, and a thrash detector. Fail any of those and it's
 > rolled back automatically, not left to compound. Memory isn't a truncated transcript, it's a structured
-> Continuity Graph of decisions, invariants, and failures. And optionally, two coding agents can race each
-> other, with a bandit learning which one wins at which kind of task."
+> Continuity Graph of decisions, invariants, and failures."
 
 Show the landing page → **Open Supersonic**.
 
@@ -69,7 +68,6 @@ Then the **build loop**, turn by turn:
 - **Agent tab** — live CLI output from the coding agent
 - **Verify tab** — the four-signal gate result for the turn that just ran
 - **Diff tab** — the change since the last checkpoint
-- **Race tab** — entrant scores, if Agent Racing is enabled
 - **Checkpoint timeline** — green nodes for verified turns, red for rollbacks
 - **Continuity Graph panel** — decisions/invariants/failures accumulating live
 - **Ship targets** — GitHub link appears once a repo is created
@@ -79,8 +77,7 @@ Then the **build loop**, turn by turn:
 ## Act 4 — Close (30 sec)
 
 > "One optional prompt, one button, and the loop only keeps what it can prove. Swap coding agents any time,
-> race two of them if you want the system to learn which is better at what, and the whole thing runs on your
-> machine with one API key."
+> and the whole thing runs on your machine with one API key."
 
 ---
 
@@ -92,7 +89,6 @@ Then the **build loop**, turn by turn:
 | No provider configured | Use `SONIC_DEMO=1`, or add an Anthropic/OpenAI key, or run a local `ollama serve` |
 | Run stuck | Check the Agent tab for CLI errors; restart `sonic serve` |
 | Want CLI only | `sonic run --idea "..." --agent claude` |
-| Want to see racing | `sonic run --idea "..." --agent claude --race --race-with codex` |
 
 ---
 

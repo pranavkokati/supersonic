@@ -1,6 +1,6 @@
 # Supersonic
 
-**The build loop that only moves forward on evidence.**
+**Ships fast. Tells you exactly what to check before you trust it.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-pink.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
@@ -12,16 +12,26 @@ not left to compound into a worse one.
 
 ## What makes this different
 
-Most agentic build loops share the same weak points: they truncate context instead of remembering it
-structurally, they trust one LLM call to decide whether a turn succeeded, and they lock you into a specific
-stack of paid integrations before you can try them at all. Supersonic is built around three specific answers
-to those problems:
+Almost every agentic coding tool competes on the same axis right now: how fast and how autonomously it can
+produce a change that passes its own checks. That axis is close to saturated — checkpoint/verify/rollback
+loops are table stakes across the current generation of tools. What's still unsolved: a controlled study of
+experienced developers using AI coding tools found task time went *up*, not down, because verification
+overhead outweighed the generation speedup. Separately, the hardest class of AI-introduced bug isn't the one
+that fails a test — it's the one that compiles, passes lint, and satisfies a goal-satisfaction critic while
+quietly touching an auth check or a payment path with no corresponding test change. Supersonic is built
+around three specific answers to those problems:
+
+- **Review Risk.** Every turn that ships gets its changed files ranked by blast radius (how many other files
+  import it), sensitive-path exposure (auth/payment/permissions/migration keyword matches against the diff),
+  and test-coverage delta (did a matching test file change in the same turn). A static heuristic, not an LLM
+  call — instant, and it tells you *where* to spend your five minutes of review time instead of handing you
+  an undifferentiated diff. See `supersonic/verify/review_risk.py` for the exact scoring.
 
 - **Checkpoint → Verify → Rollback.** Every turn is git-checkpointed before it runs. Verification checks up to
   four independent signals — tests, lint/typecheck, an LLM goal-satisfaction critic, and a diff-similarity
   thrash detector — and a turn is only kept if enough of the signals that actually ran come back positive.
   A failed turn is hard-reset to the last verified checkpoint, and the failure reason is written to permanent
-  memory so the next attempt doesn't repeat it.
+  memory so the next attempt doesn't repeat it. Review Risk only ever looks at a turn that already passed this.
 
 - **Continuity Graph, not a truncated transcript.** Instead of compressing a flat context blob down to fit a
   token budget, Supersonic keeps an append-only, git-committed ledger of structured facts — decisions,
@@ -29,15 +39,11 @@ to those problems:
   invariants and open failures always included regardless of relevance score, because silently dropping a
   constraint is far more expensive than a few extra tokens of context.
 
-- **Bandit-Gated Agent Racing.** Optionally run two coding-agent CLIs against each other in isolated git
-  worktrees. A Thompson-sampling bandit decides *when* it's actually worth racing — early on, or whenever the
-  two agents' performance for a given task type is still uncertain — and stops racing once it has learned
-  which agent wins at that kind of work. Racing frequency decays over a run instead of doubling cost forever,
-  and a hard per-run ceiling backstops the worst case. Off by default.
-
-Everything else — GitHub shipping, Linear, research enrichment, completion notifications — is optional and
-off unless you configure it. The only hard requirement to run Supersonic is **one LLM API key**: Anthropic,
-OpenAI, or a local Ollama server.
+No multi-agent racing, no bandit tuning, no doubled API spend chasing a marginal pick between two coding
+agents — the Verify gate already rejects bad output regardless of which agent produced it. Everything else —
+GitHub shipping, Linear, research enrichment, completion notifications — is optional and off unless you
+configure it. The only hard requirement to run Supersonic is **one LLM API key**: Anthropic, OpenAI, or a
+local Ollama server.
 
 ## Quickstart
 
@@ -56,7 +62,6 @@ Open [http://127.0.0.1:8787](http://127.0.0.1:8787) and complete onboarding — 
 ```bash
 sonic serve                                                     # local dashboard
 sonic run --idea "Build a focused developer tool" --agent claude
-sonic run --agent claude --race --race-with codex               # bandit-gated racing
 sonic run --demo                                                 # no live provider/agent calls
 ```
 
@@ -75,7 +80,7 @@ available for shipping.
 |---|---|
 | Plan | One provider-agnostic call grounds the idea and writes a build plan + product name |
 | Checkpoint | Git-native commit + tag of the current verified state |
-| Build | Claude Code, Codex, OpenCode, Cursor Agent, or Aider — single agent, or bandit-gated racing between two |
+| Build | Claude Code, Codex, OpenCode, Cursor Agent, or Aider — bring your own coding-agent CLI |
 | Verify | Tests + lint/typecheck + goal-satisfaction critic + thrash detector, combined into one pass/fail gate |
 | Rollback or ship | Pass → new checkpoint, pushed to GitHub. Fail → hard reset, failure logged to the Continuity Graph |
 
@@ -88,9 +93,9 @@ configured `max_turn_budget` remains a hard ceiling regardless.
 supersonic/          Python package
   providers/          LLM provider abstraction (Anthropic, OpenAI, Ollama) — auto-detected
   memory/             Continuity Graph — ledger, retrieval, distillation
-  loop/               Checkpoint / Rollback / Planner / Bandit / Race / Orchestrator
+  loop/               Checkpoint / Rollback / Planner / Orchestrator
   verify/             Tests, lint, goal critic, thrash detector, combined gate
-  agents/             Coding-agent CLI runner + git-worktree isolation for racing
+  agents/             Coding-agent CLI runner
   integrations/       Native git + gh CLI shipping, optional Linear, optional webhook notify
   research/           Optional Tavily enrichment — never required
 app/                  Local onboarding + dashboard (FastAPI + vanilla JS, SSE live view)

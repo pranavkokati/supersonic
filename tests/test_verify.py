@@ -6,6 +6,7 @@ from supersonic.store import create_project, enqueue_project, init_db, list_queu
 from supersonic.templates import apply_template, list_templates
 from supersonic.verify.gate import run_gate
 from supersonic.verify.qa import run_tests
+from supersonic.verify.telemetry_gate import TelemetryVerdict
 from supersonic.verify.thrash import detect
 from supersonic.webhooks import sign_payload
 
@@ -61,6 +62,40 @@ def test_run_gate_fails_on_a_real_failing_test_suite(tmp_path):
     assert gate.passed is False
 
 
+def test_run_gate_unaffected_when_telemetry_not_supplied(tmp_path):
+    # Every existing caller (and every test above) never passes `telemetry=` —
+    # confirm the DLE fifth signal is fully opt-in and doesn't change the
+    # original four-signal contract when omitted.
+    gate = run_gate(
+        tmp_path, provider=None, goal="do something", diff="", invariants=[], recent_diffs=[], min_signals_pass=3
+    )
+    assert gate.telemetry.ran is False
+    assert gate.to_dict()["telemetry_passed"] is None
+
+
+def test_run_gate_counts_telemetry_when_supplied_and_ran(tmp_path):
+    passing_telemetry = TelemetryVerdict(ran=True, passed=True)
+    gate = run_gate(
+        tmp_path, provider=None, goal="do something", diff="", invariants=[], recent_diffs=[],
+        min_signals_pass=1, telemetry=passing_telemetry,
+    )
+    assert gate.signals_ran == 1
+    assert gate.signals_passed == 1
+    assert gate.passed is True
+    assert gate.to_dict()["telemetry_passed"] is True
+
+
+def test_run_gate_fails_when_only_telemetry_ran_and_it_failed(tmp_path):
+    failing_telemetry = TelemetryVerdict(ran=True, passed=False, console_errors=["boom"])
+    gate = run_gate(
+        tmp_path, provider=None, goal="do something", diff="", invariants=[], recent_diffs=[],
+        min_signals_pass=1, telemetry=failing_telemetry,
+    )
+    assert gate.signals_ran == 1
+    assert gate.signals_passed == 0
+    assert gate.passed is False
+
+
 def test_webhook_sign():
     sig = sign_payload("secret", b'{"a":1}')
     assert len(sig) == 64
@@ -107,4 +142,3 @@ def test_health_api_reports_new_architecture_features():
     body = client.get("/api/health").json()
     assert "checkpoint_verify_rollback" in body["features"]
     assert "continuity_graph" in body["features"]
-    assert "bandit_agent_racing" in body["features"]

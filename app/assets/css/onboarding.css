@@ -67,7 +67,7 @@
   background: var(--line);
   transition: background 0.2s, transform 0.2s;
 }
-.ob-steps span.active { background: var(--sonic-accent); transform: scale(1.15); }
+.ob-steps span.active { background: var(--accent); transform: scale(1.15); }
 .ob-steps span.done { background: var(--pear-dark); }
 .ob-panel h1 {
   font-family: var(--serif);
@@ -82,7 +82,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--sonic-accent);
+  color: var(--accent);
   margin: 0 0 12px;
 }
 .ob-lead {
@@ -127,7 +127,7 @@
 .ob-form input:focus,
 .ob-form select:focus {
   outline: none;
-  border-bottom-color: var(--sonic-accent);
+  border-bottom-color: var(--accent);
 }
 .ob-connections {
   border-top: 1px solid var(--line);
@@ -171,7 +171,7 @@
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: var(--sonic-accent-soft);
+  background: var(--accent-soft);
   color: #3d6a9e;
   font-weight: 600;
   font-size: 13px;
