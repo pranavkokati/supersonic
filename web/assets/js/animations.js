@@ -12,16 +12,36 @@
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   function init() {
-    const targets = document.querySelectorAll(REVEAL_SELECTOR);
+    const targets = Array.from(document.querySelectorAll(REVEAL_SELECTOR));
+    if (!targets.length) return;
+
     targets.forEach((el, i) => {
       el.classList.add("reveal-up");
       el.style.setProperty("--reveal-i", String(i % 6));
     });
 
-    if (reducedMotion) {
+    if (reducedMotion || typeof IntersectionObserver !== "function") {
       targets.forEach((el) => el.classList.add("is-in"));
       return;
     }
+
+    // Anything already inside (or just below) the first viewport reveals
+    // immediately instead of waiting on an observer callback. A backgrounded
+    // or throttled tab can delay — sometimes indefinitely — the callback an
+    // IntersectionObserver would otherwise fire on load, which previously
+    // left the entire hero section (title, lead, CTAs, the ship card) stuck
+    // at opacity:0 until the tab regained focus. First paint should never
+    // depend on that callback for content already on screen.
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    const immediate = [];
+    const deferred = [];
+    targets.forEach((el) => {
+      const rect = el.getBoundingClientRect();
+      (rect.top < vh * 1.15 ? immediate : deferred).push(el);
+    });
+    immediate.forEach((el) => el.classList.add("is-in"));
+
+    if (!deferred.length) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -33,7 +53,15 @@
       },
       { threshold: 0.12, rootMargin: "0px 0px -6% 0px" }
     );
-    targets.forEach((el) => observer.observe(el));
+    deferred.forEach((el) => observer.observe(el));
+
+    // Belt-and-suspenders: if the observer never fires for some element
+    // (backgrounded tab, a bug, a browser quirk), nothing should stay
+    // invisible forever. Force reveal after a generous timeout.
+    window.setTimeout(() => {
+      deferred.forEach((el) => el.classList.add("is-in"));
+      observer.disconnect();
+    }, 2500);
   }
 
   if (document.readyState === "loading") {

@@ -293,11 +293,15 @@ h2.section-title {
   margin-bottom: 14px;
 }
 
-/* ── Feature rows — bordered terminal-style cards, not soft square visuals ── */
+/* ── Feature rows — bordered terminal-style cards, not soft square visuals.
+   A CSS grid, not a single flex row: with 8 feature cards, one unbroken row
+   squeezed each card to ~150px and wrapped every headline and stat into an
+   unreadable ragged column. Grid wraps into 1/2/4 columns by breakpoint so
+   every card keeps a legible minimum width. ── */
 .df-features { padding: 0 var(--frame) 56px; }
 .df-features-inner {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 1px;
   max-width: var(--max);
   margin: 0 auto;
@@ -306,8 +310,9 @@ h2.section-title {
   border-radius: var(--radius);
   overflow: hidden;
 }
-@media (min-width: 860px) { .df-features-inner { flex-direction: row; } }
-.df-feature-card { display: flex; flex-direction: column; gap: 0; flex: 1; min-width: 0; background: var(--surface); }
+@media (min-width: 640px) { .df-features-inner { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1160px) { .df-features-inner { grid-template-columns: repeat(4, 1fr); } }
+.df-feature-card { display: flex; flex-direction: column; gap: 0; min-width: 0; background: var(--surface); }
 .df-feature-visual { padding: 26px 24px 18px; border-bottom: 1px solid var(--line); }
 .df-feature-visual--blue, .df-feature-visual--pear, .df-feature-visual--warm { background: transparent; }
 .df-feature-inner { display: flex; flex-direction: column; gap: 14px; }

@@ -8,11 +8,13 @@ penalized for a signal that had no way to run.
 
 from __future__ import annotations
 
+import importlib.util
 import json as _json
 import logging
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -43,10 +45,32 @@ def _run(cmd: List[str], cwd: Path, timeout: int = 300) -> subprocess.CompletedP
     return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
 
 
+def _pytest_command() -> Optional[List[str]]:
+    """`python -m pytest` on the interpreter actually running Supersonic,
+    not a bare `pytest` looked up on PATH. `shutil.which("pytest")` alone
+    silently misses pytest in any environment where it's installed and
+    fully usable but the console-script shim isn't on PATH — pipx-style
+    isolated installs, several sandboxed/containerized setups, some venv
+    activation flows. Falling through to a PATH-only `pytest` would make
+    the entire Tests signal (and Test Quality's mutation re-runs, which
+    reuse this) silently degrade to "not run" with zero error, exactly
+    the kind of quiet gap the Verify gate exists to prevent. Only fall
+    back to a bare `pytest` name if the package can't be found at all in
+    this interpreter but a `pytest` binary is on PATH regardless (e.g. a
+    pytest installed into a different Python than the one running us)."""
+    if importlib.util.find_spec("pytest") is not None:
+        return [sys.executable, "-m", "pytest", "-q", "--maxfail=20"]
+    if shutil.which("pytest"):
+        return ["pytest", "-q", "--maxfail=20"]
+    return None
+
+
 def _detect_test_command(workdir: Path) -> Optional[List[str]]:
     has_py_tests = (workdir / "tests").exists() or list(workdir.glob("test_*.py"))
-    if has_py_tests and shutil.which("pytest"):
-        return ["pytest", "-q", "--maxfail=20"]
+    if has_py_tests:
+        cmd = _pytest_command()
+        if cmd:
+            return cmd
     pkg = workdir / "package.json"
     if pkg.exists() and shutil.which("npm"):
         try:
