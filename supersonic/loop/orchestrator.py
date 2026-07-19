@@ -1,0 +1,373 @@
+"""Supersonic orchestrator — Checkpoint -> Verify -> Rollback build loop.
+
+The whole system in one sentence: every turn is committed only if it earns
+it. A turn runs (single agent, or a bandit-gated race between two), gets
+scored by the Verify gate on up to four independent signals, and either
+becomes the new safe checkpoint or gets reverted — with the failure reason
+written into the Continuity Graph so the next attempt doesn't repeat it.
+
+This replaces the previous generation's single-call blind router (one LLM
+call decides run_agent/run_qa/done with a flat turn cap as the only safety
+net) with a loop that can only move forward on verified evidence.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from supersonic.agents.runner import AgentResult, CodingAgentRunner
+from supersonic.config import UserSecrets, get_settings
+from supersonic.events import publish
+from supersonic.integrations import git_ops
+from supersonic.integrations.github import ensure_repo, ship as github_ship
+from supersonic.integrations.linear import create_issue as linear_create_issue, is_configured as linear_configured
+from supersonic.integrations.notify import notify_completion
+from supersonic.loop.bandit import AgentBandit, classify_task
+from supersonic.loop.checkpoint import Checkpoint, CheckpointManager
+from supersonic.loop.planner import ProductBrand, TurnPlan, generate_brand, generate_plan, generate_turn_plan
+from supersonic.loop.race import run_race
+from supersonic.loop.rollback import rollback_to
+from supersonic.memory import ContinuityGraph, ContinuityLedger, distill, should_distill
+from supersonic.providers import get_provider
+from supersonic.providers.base import LLMProvider, ProviderError
+from supersonic.research.tavily import TavilyResearch, is_configured as tavily_configured
+from supersonic.research.web import model_knowledge_bundle
+from supersonic.store import Run, append_agent_log, get_project, update_project, update_run
+from supersonic.templates import apply_template
+from supersonic.validate import RunValidationError, validate_live_run
+from supersonic.verify.gate import GateResult, run_gate
+from supersonic.webhooks import fire_webhook
+from supersonic.workdir import workdir_summary
+
+logger = logging.getLogger(__name__)
+
+SAFETY_MAX_TURNS = 200
+
+
+def _ts() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class RunContext:
+    """Owns event emission + phase bookkeeping for one run, mirrored to the store for SSE replay."""
+
+    def __init__(self, run: Run, phases: List[Dict[str, Any]]):
+        self.run = run
+        self.phases = phases
+        self.agent_log = ""
+
+    def emit(self, event: Dict[str, Any]) -> None:
+        event.setdefault("ts", _ts())
+        publish(self.run.id, event)
+
+    def start_phase(self, phase_id: str, tool: str, detail: str, *, stage: str = "loop") -> None:
+        entry = {"phase": phase_id, "tool": tool, "detail": detail, "status": "running", "ts": _ts(), "stage": stage}
+        self.phases.append(entry)
+        update_run(self.run.id, status="running", current_phase=phase_id, phases=self.phases)
+        self.emit({"type": "phase", "phase": phase_id, "tool": tool, "status": "running", "detail": detail, "stage": stage})
+
+    def finish_phase(self, phase_id: str, detail: str, **extra: Any) -> None:
+        for p in reversed(self.phases):
+            if p["phase"] == phase_id and p["status"] == "running":
+                p["status"] = "done"
+                p["detail"] = detail
+                p.update(extra)
+                break
+        update_run(self.run.id, phases=self.phases)
+        stage = extra.get("stage", "loop")
+        self.emit({"type": "phase", "phase": phase_id, "status": "done", "detail": detail, "stage": stage,
+                    **{k: v for k, v in extra.items() if k != "stage"}})
+
+    def agent_line(self, line: str) -> None:
+        self.agent_log += line + "\n"
+        append_agent_log(self.run.id, line)
+        self.emit({"type": "agent_line", "line": line})
+
+    def checkpoint_event(self, checkpoint: Checkpoint, verified: bool) -> None:
+        self.emit({"type": "checkpoint", "verified": verified, **checkpoint.to_dict()})
+
+    def ledger_event(self, kind: str, title: str, turn: int) -> None:
+        self.emit({"type": "ledger_entry", "kind": kind, "title": title, "turn": turn})
+
+    def gate_event(self, turn: int, gate: GateResult) -> None:
+        self.emit({"type": "verify_result", "turn": turn, **gate.to_dict()})
+
+    def race_event(self, turn: int, outcome) -> None:
+        self.emit({"type": "race_result", "turn": turn, **outcome.to_dict()})
+
+
+def _pick_idea(secrets: UserSecrets, provider: Optional[LLMProvider], seed: str, project_idea: str, demo: bool) -> tuple:
+    seed = (seed or project_idea or "").strip()
+    if demo:
+        return seed or "Local-first developer automation tool", []
+    if tavily_configured(secrets):
+        try:
+            bundle = TavilyResearch(secrets).search_ideas(seed)
+            idea = seed or (bundle.answer.split(".")[0][:200] if bundle.answer else "") or seed
+            return idea or "Local-first developer automation tool", [bundle.to_context_block()]
+        except Exception:
+            logger.exception("Tavily research failed, continuing without it")
+    if seed:
+        return seed, []
+    bundle = model_knowledge_bundle(provider, "developer tooling opportunities")
+    return "Local-first developer automation tool", [bundle.to_context_block()] if bundle.answer else []
+
+
+def _build_prompt(*, idea: str, plan: str, brand: ProductBrand, goal: str, turn: int, continuity_context: str) -> str:
+    brand_block = brand.to_context_block()
+    header = f"# Supersonic — build turn {turn}" if turn > 1 else "# Supersonic — build turn 1 (kickoff)"
+    task_block = f"## Task\n{goal}" if turn > 1 else f"## Product idea\n{idea}"
+    return f"""{header}
+
+{task_block}
+
+{brand_block}
+
+## Build plan
+{plan}
+
+{continuity_context}
+
+## Instructions
+- Push toward the plan concretely — real source files, not just markdown.
+- Respect every invariant listed above; do not repeat any listed known failure.
+- Include or update tests for anything you add.
+- Commit is handled by the loop — just leave the working tree in the state you want evaluated.
+
+Build now.
+"""
+
+
+def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any]:
+    settings = get_settings()
+    demo = settings.sonic_demo
+    ctx = RunContext(run, list(run.phases))
+    project = get_project(run.project_id)
+    if not project:
+        raise ValueError("project not found")
+
+    agent_kind = project.agent  # type: ignore
+    if not demo:
+        validate_live_run(secrets, agent_kind)  # type: ignore
+
+    workdir = Path(project.workdir)
+    workdir.mkdir(parents=True, exist_ok=True)
+    template_id = getattr(project, "template_id", "greenfield") or "greenfield"
+    template_hint = apply_template(workdir, template_id, project.idea or seed)
+
+    update_run(run.id, status="running", agent_log="")
+    ctx.emit({"type": "started", "project_id": project.id, "agent": agent_kind, "orchestration": "checkpoint_verify_rollback"})
+
+    provider: Optional[LLMProvider] = None
+    if not demo:
+        try:
+            provider = get_provider(secrets)
+        except ProviderError as e:
+            update_run(run.id, status="failed", error=str(e), current_phase="", finished_at=_ts())
+            ctx.emit({"type": "error", "message": str(e)})
+            raise
+
+    build_complete = False
+    try:
+        # ---- setup (once) ----
+        ctx.start_phase("research", "Research", "Grounding the idea…", stage="setup")
+        idea, research_blocks = _pick_idea(secrets, provider, seed, project.idea, demo)
+        ctx.finish_phase("research", f"Idea: {idea[:120]}", stage="setup")
+        if template_hint:
+            (workdir / "TEMPLATE.md").write_text(template_hint, encoding="utf-8")
+        update_project(project.id, idea=idea, name=idea[:80] or project.name, status="planning")
+
+        ctx.start_phase("checkpoint-init", "Checkpoint", "Initializing git-native checkpointing…", stage="setup")
+        checkpoints = CheckpointManager(workdir)
+        ledger = ContinuityLedger(workdir)
+        graph = ContinuityGraph(ledger)
+        ctx.finish_phase("checkpoint-init", "Repo ready", stage="setup")
+
+        ctx.start_phase("plan", "Planner", "Build plan…", stage="setup")
+        plan = _fallback_plan(idea) if demo else generate_plan(provider, idea, research_blocks)  # type: ignore
+        (workdir / "BUILD_PLAN.md").write_text(plan, encoding="utf-8")
+        ctx.finish_phase("plan", "Plan ready", stage="setup")
+
+        ctx.start_phase("brand", "Planner", "Naming…", stage="setup")
+        brand = ProductBrand.from_idea(idea) if demo else generate_brand(provider, idea, plan)  # type: ignore
+        ctx.finish_phase("brand", f"{brand.product_name} · {brand.repo_slug}", stage="setup")
+
+        ledger.record_decision(0, "Adopted build plan", plan, tags=["setup"])
+        ledger.record_invariant(0, "Keep the working tree buildable", "Every turn must leave the project in a runnable state.")
+        ledger.render_brain()
+
+        github_url = None
+        if not demo:
+            ctx.start_phase("ship-init", "GitHub", "Repo setup…", stage="setup")
+            github_url = ensure_repo(workdir, brand.repo_slug, private=True, description=brand.tagline)
+            ctx.finish_phase("ship-init", github_url or "Skipped (gh not available/authenticated)", stage="setup", github_url=github_url or "")
+
+        linear_url = None
+        if not demo and linear_configured(secrets):
+            linear_url = linear_create_issue(secrets, f"[Supersonic] {brand.product_name}", plan)
+
+        init_checkpoint = checkpoints.create(0, "setup complete")
+        ctx.checkpoint_event(init_checkpoint, verified=True)
+        last_good = init_checkpoint
+
+        race_agents = list(dict.fromkeys([secrets.default_agent, *secrets.race_agents])) if secrets.race_enabled else []
+        bandit = AgentBandit(workdir, race_agents) if len(race_agents) >= 2 else None
+
+        ctx.emit({"type": "setup_complete", "github_url": github_url or "", "linear_url": linear_url or ""})
+
+        # ---- loop ----
+        recent_diffs: List[str] = []
+        next_follow_up = ""
+        turns_completed = 0
+        race_turns_used = 0
+        last_gate: Optional[GateResult] = None
+        max_turns = min(SAFETY_MAX_TURNS, max(secrets.max_turn_budget, 1))
+
+        turn = 0
+        while turn < max_turns:
+            turn += 1
+            turns_completed = turn
+            goal = idea if turn == 1 else (next_follow_up or "Continue building toward the plan.")
+            ctx.emit({"type": "turn_started", "turn": turn, "goal": goal})
+
+            task_type = classify_task(goal)
+            retrieval = graph.retrieve(goal, token_budget=secrets.ledger_context_budget, current_turn=turn)
+            prompt = _build_prompt(idea=idea, plan=plan, brand=brand, goal=goal, turn=turn, continuity_context=retrieval.context_block)
+
+            ctx.start_phase(f"turn-{turn}", agent_kind.title(), f"Turn {turn}…", stage="loop")
+            ctx.agent_line(f"─── Turn {turn} ───")
+
+            chosen_agent = agent_kind
+            gate: GateResult
+            diff = ""
+
+            if demo:
+                agent_result = AgentResult(agent=agent_kind, success=True, output="[demo] simulated build turn", command="demo")
+                ctx.agent_line(agent_result.output)
+                diff = ""
+                gate = run_gate(workdir, provider=None, goal=goal, diff="", invariants=[], recent_diffs=[], min_signals_pass=secrets.verify_min_signals_pass)
+            elif bandit is not None and race_turns_used < secrets.max_race_turns and bandit.should_race(task_type):
+                outcome = run_race(
+                    base_workdir=workdir, task_type=task_type, agents=race_agents, secrets=secrets, prompt=prompt,
+                    provider=provider, goal=goal, invariants=[f"{i.title}: {i.body}" for i in ledger.invariants()],
+                    recent_diffs=recent_diffs, min_signals_pass=secrets.verify_min_signals_pass,
+                    challenger_turn_cap=secrets.race_challenger_turn_cap,
+                    on_line=lambda agent, line: ctx.agent_line(f"[{agent}] {line}"),
+                )
+                race_turns_used += 1
+                bandit.record_result(task_type, outcome.winner, [e.agent for e in outcome.entrants])
+                ctx.race_event(turn, outcome)
+                chosen_agent = outcome.winner
+                winner_entrant = next(e for e in outcome.entrants if e.agent == outcome.winner)
+                agent_result = winner_entrant.result
+                gate = winner_entrant.gate
+                diff = checkpoints.diff_since(last_good)
+            else:
+                if bandit is not None:
+                    chosen_agent = bandit.best_agent(task_type)
+                runner = CodingAgentRunner(chosen_agent, secrets)
+                agent_result = runner.run(prompt, workdir, on_line=ctx.agent_line)
+                diff = checkpoints.diff_since(last_good)
+                gate = run_gate(
+                    workdir, provider=provider, goal=goal, diff=diff,
+                    invariants=[f"{i.title}: {i.body}" for i in ledger.invariants()],
+                    recent_diffs=recent_diffs, min_signals_pass=secrets.verify_min_signals_pass,
+                )
+
+            recent_diffs.append(diff)
+            recent_diffs = recent_diffs[-5:]
+            last_gate = gate
+            ctx.gate_event(turn, gate)
+
+            if gate.passed:
+                ledger.record_decision(turn, f"Turn {turn}: {goal[:80]}", gate.summary, tags=[chosen_agent])
+                ctx.ledger_event("decision", goal[:80], turn)
+                new_checkpoint = checkpoints.create(turn, goal[:150])
+                last_good = new_checkpoint
+                ctx.checkpoint_event(new_checkpoint, verified=True)
+                if not demo and git_ops.has_remote(workdir):
+                    github_ship(workdir, mode="push")
+                ctx.finish_phase(f"turn-{turn}", "Verified", success=True, stage="loop")
+            else:
+                reason = gate.critic.reasoning or gate.summary
+                ledger.record_failure(turn, f"Turn {turn} failed: {goal[:60]}", f"{gate.summary} {reason}".strip(), tags=[chosen_agent])
+                ctx.ledger_event("failure", goal[:80], turn)
+                rollback_to(workdir, last_good)
+                ctx.checkpoint_event(last_good, verified=False)
+                ctx.finish_phase(f"turn-{turn}", "Rolled back", success=False, stage="loop")
+
+            if should_distill(ledger, turn):
+                distill(ledger, provider, turn)
+                ctx.emit({"type": "distilled", "turn": turn})
+            ledger.render_brain()
+
+            ctx.start_phase(f"route-{turn}", "Planner", "Routing next turn…", stage="loop")
+            if demo:
+                turn_plan = TurnPlan(done=turn >= 3, follow_up=f"Polish for turn {turn + 1}", reason="Demo loop")
+            else:
+                turn_plan = generate_turn_plan(
+                    provider, idea=idea, plan=plan, turn=turn, continuity_context=retrieval.context_block,
+                    workdir_summary=workdir_summary(workdir, 25), verify_context=gate.to_context_block(),
+                    last_follow_up=next_follow_up,
+                )
+            ctx.finish_phase(f"route-{turn}", turn_plan.reason, stage="loop")
+            ctx.emit({"type": "turn_plan", "turn": turn, "done": turn_plan.done, "follow_up": turn_plan.follow_up, "reason": turn_plan.reason})
+
+            if turn_plan.done:
+                build_complete = True
+                break
+            next_follow_up = turn_plan.follow_up or next_follow_up
+
+        if turn >= SAFETY_MAX_TURNS and not build_complete:
+            logger.warning("Safety cap %s reached", SAFETY_MAX_TURNS)
+
+        pr_url = None
+        if build_complete and not demo and secrets.ship_mode == "pr" and git_ops.has_remote(workdir):
+            ship_result = github_ship(workdir, mode="pr", title=brand.product_name, body=f"{brand.tagline}\n\n{plan}")
+            pr_url = ship_result.get("url")
+
+        if not demo:
+            notify_completion(secrets, {
+                "project_id": project.id, "run_id": run.id, "product_name": brand.product_name,
+                "turns": turns_completed, "build_complete": build_complete, "pr_url": pr_url or "",
+            })
+
+        update_project(project.id, status="built" if build_complete else "error")
+        result = {
+            "idea": idea,
+            "plan": plan,
+            "brand": {"product_name": brand.product_name, "repo_slug": brand.repo_slug, "tagline": brand.tagline},
+            "turns": turns_completed,
+            "build_complete": build_complete,
+            "agent": {"kind": agent_kind, "success": build_complete},
+            "tracking": {"github_url": github_url or "", "linear_url": linear_url or ""},
+            "verify": last_gate.to_dict() if last_gate else {},
+            "bandit_win_rates": bandit.win_rates() if bandit else {},
+            "checkpoints": len(checkpoints.list()),
+            "ledger_stats": ledger.stats(),
+            "pr_url": pr_url or "",
+            "workdir": str(workdir),
+        }
+        status = "completed" if build_complete else "failed"
+        update_run(run.id, status=status, phases=ctx.phases, result=result, current_phase="", finished_at=_ts())
+        ctx.emit({"type": "complete", "status": status, "result": result})
+        fire_webhook(
+            secrets.webhook_url, "build.complete" if build_complete else "build.stopped",
+            {"project_id": project.id, "run_id": run.id, "status": status, "build_complete": build_complete,
+             "turns": turns_completed, "pr_url": pr_url or ""},
+            secret=secrets.webhook_secret,
+        )
+        return result
+
+    except Exception as e:
+        logger.exception("supersonic run failed")
+        update_run(run.id, status="failed", error=str(e), current_phase="", finished_at=_ts())
+        ctx.emit({"type": "error", "message": str(e)})
+        raise
+
+
+def _fallback_plan(idea: str) -> str:
+    return f"1. Scaffold MVP for: {idea}\n2. README + tests\n3. Core feature\n4. Polish"

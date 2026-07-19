@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Supersonic</title>
+  <meta name="theme-color" content="rgb(251,251,248)" />
+  <link rel="stylesheet" href="/assets/css/style.css?v=2" />
+  <link rel="stylesheet" href="/assets/css/sonic.css?v=1" />
+  <link rel="stylesheet" href="/assets/css/landing.css?v=4" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 14 L14 3 L14 9 L21 9 L10 21 L10 15 Z' fill='%23ff6a3d'/></svg>" />
+</head>
+<body class="cr-landing">
+  <div class="cr-landing-bg" aria-hidden="true"></div>
+  <main class="cr-landing-main">
+    <div class="cr-landing-logo">
+      <svg viewBox="0 0 24 24" width="32" aria-hidden="true" class="cr-ring-icon">
+        <path d="M3 14 L14 3 L14 9 L21 9 L10 21 L10 15 Z" fill="none" stroke="#ff6a3d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>supersonic</span>
+    </div>
+    <h1>The build loop<br />that only moves forward on evidence.</h1>
+    <p class="cr-landing-lead">
+      Checkpoint → Verify → Rollback: every turn is committed only if it passes tests, lint, a goal-satisfaction
+      critic, and a thrash detector. A structured Continuity Graph remembers decisions, invariants, and past
+      failures across the whole build — not a truncated transcript. Optionally race two coding agents against
+      each other and let a bandit learn which one actually wins at your kind of work.
+    </p>
+    <div class="cr-landing-flow">
+      <span>Plan</span><span>→</span><span>Checkpoint</span><span>→</span>
+      <span>Agent</span><span>→</span><span>Verify</span><span>→</span><span>Ship</span>
+    </div>
+    <a href="/onboarding" class="btn btn-pear cr-landing-cta" id="open-sonic">Open Supersonic</a>
+    <p class="cr-landing-foot">
+      Local · open source · your API keys · one key to start
+    </p>
+  </main>
+  <script>
+    if (localStorage.getItem("sonic-onboarded") === "1") {
+      document.getElementById("open-sonic").href = "/dashboard";
+    }
+  </script>
+</body>
+</html>

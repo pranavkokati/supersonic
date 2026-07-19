@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Supersonic — The build loop that only moves forward on evidence</title>
+  <meta name="description" content="Supersonic — a local, open-source Checkpoint/Verify/Rollback build loop with a structured Continuity Graph memory and bandit-gated Agent Racing across coding-agent backends." />
+  <meta property="og:title" content="Supersonic" />
+  <meta property="og:description" content="Checkpoint → Verify → Rollback. A structured Continuity Graph instead of a truncated transcript. Bandit-gated racing between coding agents. One API key. Fully local." />
+  <meta property="og:type" content="website" />
+  <meta name="theme-color" content="rgb(251,251,248)" />
+  <link rel="stylesheet" href="assets/css/style.css?v=2" />
+  <link rel="stylesheet" href="assets/css/sonic.css?v=1" />
+  <link rel="stylesheet" href="assets/css/animations.css?v=1" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 14 L14 3 L14 9 L21 9 L10 21 L10 15 Z' fill='%23ff6a3d'/></svg>" />
+</head>
+<body class="df-site">
+  <div class="df-bg-top" aria-hidden="true"></div>
+
+  <header class="df-header">
+    <div class="df-header-inner">
+      <a href="index.html" class="df-logo">
+        <svg class="df-logo-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 14 L14 3 L14 9 L21 9 L10 21 L10 15 Z" fill="none" stroke="#ff6a3d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="df-logo-word">supersonic</span>
+      </a>
+      <div class="df-header-end">
+        <nav class="df-nav-pill" aria-label="Main">
+          <a href="#how">How it works</a>
+          <a href="#agents">Agents</a>
+          <a href="#quickstart">Quickstart</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <div class="df-cta-pill">
+          <a href="#quickstart">Get started</a>
+        </div>
+      </div>
+      <button type="button" class="df-menu-btn" id="df-menu-btn" aria-label="Open menu" aria-expanded="false">
+        <span></span><span></span>
+      </button>
+    </div>
+    <div class="df-mobile-nav hidden" id="df-mobile-nav">
+      <a href="#how">How it works</a>
+      <a href="#agents">Agents</a>
+      <a href="#quickstart">Quickstart</a>
+      <a href="#faq">FAQ</a>
+    </div>
+  </header>
+  <div class="df-header-spacer" aria-hidden="true"></div>
+
+  <div class="df-shell">
+    <main>
+      <section class="hero-df">
+        <div class="hero-df-inner">
+          <div class="hero-df-copy">
+            <h1 class="hero-df-title">The build loop that only moves forward on evidence.</h1>
+            <p class="hero-df-lead">
+              Local, open source, one API key. Every turn is committed only if it passes a four-signal Verify
+              gate — otherwise it's rolled back automatically and the failure is written into a structured
+              Continuity Graph so the next attempt doesn't repeat it. Optionally race two coding agents against
+              each other and let a bandit learn which one wins at your kind of work.
+            </p>
+            <div class="hero-df-actions">
+              <a href="#quickstart" class="btn btn-pear">Get started</a>
+              <a href="#how" class="btn btn-text-link">See how it works</a>
+            </div>
+            <div class="pipeline-flow" aria-hidden="true">
+              <span>Plan</span><span class="arrow">→</span>
+              <span>Checkpoint</span><span class="arrow">→</span>
+              <span>Agent</span><span class="arrow">→</span>
+              <span>Verify</span><span class="arrow">→</span>
+              <span>Ship</span>
+            </div>
+          </div>
+          <div class="hero-df-visual">
+            <div class="product-mock" id="product-mock">
+              <div class="mock-toolbar">
+                <div class="mock-dots"><span></span><span></span><span></span></div>
+                <span class="mock-title">Supersonic · localhost:8787</span>
+                <span class="mock-badge">local · your keys</span>
+              </div>
+              <div class="mock-layout">
+                <aside class="mock-sidebar">
+                  <p class="mock-label">Loop</p>
+                  <ul class="mock-stack" id="mock-stack">
+                    <li class="active" data-phase="plan">Plan</li>
+                    <li data-phase="checkpoint">Checkpoint</li>
+                    <li data-phase="agent">Agent</li>
+                    <li data-phase="verify">Verify</li>
+                    <li data-phase="ship">Ship</li>
+                  </ul>
+                  <p class="mock-label">Projects</p>
+                  <div class="mock-block">todo-cli · built</div>
+                  <div class="mock-block">api-sync · running</div>
+                </aside>
+                <div class="mock-main">
+                  <div class="mock-query">
+                    <span class="mock-avatar">▶</span>
+                    <p>Run loop</p>
+                  </div>
+                  <div class="mock-agent">
+                    <span class="mock-avatar agent">SN</span>
+                    <div class="mock-response">
+                      <p class="mock-meta">turn 6 · verify 4/4 · checkpoint locked in</p>
+                      <p>MVP scaffolded in ~/.supersonic/projects/a3f2 — Continuity Graph has 14 decisions, 1 invariant, GitHub PR opened.</p>
+                      <div class="mock-phases">
+                        <span class="mock-phase done">plan</span>
+                        <span class="mock-phase done">agent</span>
+                        <span class="mock-phase done">verify</span>
+                        <span class="mock-phase active">ship</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section wrap" id="features">
+        <h2 class="section-title-lg">Three ideas, none of them a rename of the usual agent-loop pattern.</h2>
+      </section>
+
+      <section class="df-features">
+        <div class="df-features-inner">
+          <article class="df-feature-card">
+            <div class="df-feature-visual df-feature-visual--blue">
+              <div class="df-feature-inner">
+                <ul class="feat-stack">
+                  <li>Tests</li>
+                  <li>Lint / typecheck</li>
+                  <li class="feat-stack--active">Goal critic</li>
+                  <li>Thrash detector</li>
+                </ul>
+                <p class="feat-stat">4/4<span>signals gate every turn</span></p>
+              </div>
+            </div>
+            <div class="df-feature-copy">
+              <h3>Checkpoint → Verify → Rollback.</h3>
+              <p>A turn is committed only if enough of the four signals that actually ran come back positive. A failed turn is hard-reset to the last verified state, not left to compound.</p>
+            </div>
+          </article>
+
+          <article class="df-feature-card">
+            <div class="df-feature-visual df-feature-visual--pear">
+              <div class="df-feature-inner">
+                <ul class="feat-int-list">
+                  <li><strong>Invariants</strong><span class="feat-int-ok">always kept</span></li>
+                  <li><strong>Failures</strong><span class="feat-int-ok">always kept</span></li>
+                  <li><strong>Decisions</strong><span class="feat-int-pending">ranked</span></li>
+                  <li><strong>Old entries</strong><span class="feat-int-pending">distilled</span></li>
+                </ul>
+              </div>
+            </div>
+            <div class="df-feature-copy">
+              <h3>A Continuity Graph, not a truncated transcript.</h3>
+              <p>Structured decisions, invariants, and failures, retrieved by relevance to the current turn — not a flat context blob trimmed down to fit a budget.</p>
+            </div>
+          </article>
+
+          <article class="df-feature-card">
+            <div class="df-feature-visual df-feature-visual--warm">
+              <div class="df-feature-inner">
+                <ul class="feat-int-list">
+                  <li><strong>Claude Code</strong><span class="feat-int-ok">CLI</span></li>
+                  <li><strong>Codex</strong><span class="feat-int-ok">CLI</span></li>
+                  <li><strong>Cursor / OpenCode</strong><span class="feat-int-ok">CLI</span></li>
+                  <li><strong>Aider</strong><span class="feat-int-ok">CLI</span></li>
+                </ul>
+              </div>
+            </div>
+            <div class="df-feature-copy">
+              <h3>Bandit-gated Agent Racing.</h3>
+              <p>Turn on racing and two agents compete in isolated git worktrees when the outcome is still uncertain — a Thompson-sampling bandit learns which one wins per task type and stops racing once it knows, so cost decays instead of doubling forever.</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="editorial">
+        <div class="wrap">
+          <h2 class="editorial-quote">Autonomous coding loops fail quietly — they drift, they thrash, they forget what they already tried. Supersonic's loop only keeps what it can prove. No hosted keys. No sponsor-locked integration stack. One API key, your machine, your git history as the safety net.</h2>
+        </div>
+      </section>
+
+      <section class="section wrap" id="how">
+        <h2 class="section-title">How it works</h2>
+        <div class="trust-grid" style="margin-top:32px">
+          <article class="trust-card">
+            <p class="trust-label">1 · Plan</p>
+            <h3>Ground the idea, write the plan</h3>
+            <p>Optional research enrichment, then one call produces a build plan and a name — provider-agnostic, no vendor lock-in.</p>
+          </article>
+          <article class="trust-card">
+            <p class="trust-label">2 · Checkpoint</p>
+            <h3>Git-native snapshotting</h3>
+            <p>Every verified state is committed and tagged. No custom snapshot format — just git doing what it already does well.</p>
+          </article>
+          <article class="trust-card">
+            <p class="trust-label">3 · Build</p>
+            <h3>Your agent writes code</h3>
+            <p>Claude Code, Codex, OpenCode, Cursor Agent, or Aider — bring your own CLI, or race two of them.</p>
+          </article>
+          <article class="trust-card">
+            <p class="trust-label">4 · Verify</p>
+            <h3>Four independent signals</h3>
+            <p>Tests, lint/typecheck, an LLM goal-satisfaction critic, and a diff-similarity thrash detector.</p>
+          </article>
+          <article class="trust-card">
+            <p class="trust-label">5 · Rollback or ship</p>
+            <h3>Only proven progress sticks</h3>
+            <p>Pass → new checkpoint, pushed to GitHub. Fail → hard reset to the last good state, failure logged to the Continuity Graph.</p>
+          </article>
+          <article class="trust-card">
+            <p class="trust-label">Local UI</p>
+            <h3>Manage projects locally</h3>
+            <p><code>sonic serve</code> at localhost — keys in <code>~/.supersonic/</code> only.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section wrap" id="agents">
+        <h2 class="section-title">Supported coding agents</h2>
+        <p class="section-desc" style="margin-top:12px;color:var(--text-secondary);max-width:560px">Install any CLI on your PATH. Pick one per project, or race two of them.</p>
+        <div class="agent-grid">
+          <article class="agent-card">
+            <h3>Claude Code</h3>
+            <p>Anthropic's agent CLI. Authenticates via the local Claude Code login.</p>
+          </article>
+          <article class="agent-card">
+            <h3>Codex</h3>
+            <p>OpenAI Codex CLI — <code>codex exec --full-auto</code>. Authenticates via the local Codex login.</p>
+          </article>
+          <article class="agent-card">
+            <h3>OpenCode</h3>
+            <p>Open-source coding agent. Runs from a generated prompt file in your project dir.</p>
+          </article>
+          <article class="agent-card">
+            <h3>Cursor Agent</h3>
+            <p>Cursor's local agent CLI when installed — same loop, your subscription.</p>
+          </article>
+          <article class="agent-card">
+            <h3>Aider</h3>
+            <p>The original terminal pair-programmer — works as a drop-in racing partner.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section wrap" id="quickstart">
+        <h2 class="section-title">Quickstart</h2>
+        <div class="quickstart-block">
+          <p>Clone, install, onboard, build.</p>
+          <pre><span class="cm"># Install</span>
+git clone https://github.com/your-org/supersonic.git
+cd supersonic
+./bootstrap.sh
+source .venv/bin/activate
+sonic serve
+<span class="cm"># → http://127.0.0.1:8787 → Open Supersonic → onboard → Build</span>
+
+<span class="cm"># Headless</span>
+sonic run --idea <span class="str">"CLI that syncs issues to markdown"</span> --agent claude
+sonic run --agent claude --race --race-with codex
+sonic run --demo
+sonic doctor</pre>
+        </div>
+        <div class="differentiator-row" id="stack">
+          <span class="differentiator-pill">Checkpoint / Verify / Rollback</span>
+          <span class="differentiator-pill">Continuity Graph</span>
+          <span class="differentiator-pill">Bandit-Gated Agent Racing</span>
+          <span class="differentiator-pill">Provider-agnostic</span>
+        </div>
+      </section>
+
+      <section class="section wrap" id="faq">
+        <h2 class="section-title">FAQ</h2>
+        <div class="faq-list">
+          <details class="faq-item">
+            <summary>Is this hosted?</summary>
+            <p>No. Supersonic runs entirely on your machine. This website is documentation and overview only.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Where do API keys go?</summary>
+            <p><code>~/.supersonic/config.json</code> — never uploaded anywhere. Configure via the local UI at <code>sonic serve</code>.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Do I need four different vendor accounts to try it?</summary>
+            <p>No. One LLM key (Anthropic, OpenAI, or a local Ollama server) is all that's required. GitHub shipping, Linear, research, and racing are all optional and off by default.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Won't Agent Racing double my API costs?</summary>
+            <p>Only while the bandit is still uncertain which agent wins at a given task type. It's Thompson sampling, not always-on racing — the frequency of races decays as it learns, plus a hard per-run ceiling caps the worst case. Off by default either way.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Can I try without API keys?</summary>
+            <p>Yes — <code>sonic run --demo</code> runs the full loop in demo mode with synthetic turns, so you can see the checkpoint/verify/rollback mechanics before connecting a provider.</p>
+          </details>
+        </div>
+      </section>
+
+      <section class="cta-df">
+        <div class="wrap cta-df-inner">
+          <h2>Run Supersonic.</h2>
+          <p>Open source · MIT · fully local</p>
+          <a href="#quickstart" class="btn btn-pear">Get started</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="df-footer">
+      <div class="df-footer-inner">
+        <div class="df-footer-grid">
+          <div class="df-footer-brand-col">
+            <p class="df-footer-brand">supersonic</p>
+            <p class="df-footer-tagline">Local autonomous builder — your keys, your machine, your git history as the safety net.</p>
+          </div>
+          <div class="df-footer-links">
+            <div>
+              <p class="df-footer-heading">Links</p>
+              <ul>
+                <li><a href="#quickstart">Quickstart</a></li>
+                <li><a href="#how">How it works</a></li>
+                <li><a href="#faq">FAQ</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <p class="df-footer-copy">© 2026 Supersonic · MIT</p>
+      </div>
+    </footer>
+  </div>
+
+  <script src="assets/js/animations.js?v=1"></script>
+  <script src="assets/js/site.js?v=3"></script>
+</body>
+</html>

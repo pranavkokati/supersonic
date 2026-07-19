@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Supersonic</title>
+  <meta name="theme-color" content="rgb(251,251,248)" />
+  <link rel="stylesheet" href="/assets/css/style.css?v=2" />
+  <link rel="stylesheet" href="/assets/css/sonic.css?v=1" />
+  <link rel="stylesheet" href="/assets/css/dashboard.css?v=1" />
+  <link rel="stylesheet" href="/assets/css/dashboard-refresh.css?v=1" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 14 L14 3 L14 9 L21 9 L10 21 L10 15 Z' fill='%23ff6a3d'/></svg>" />
+</head>
+<body class="sn-dash">
+  <div id="toast-root" class="sn-toast-root" aria-live="polite"></div>
+
+  <header class="sn-topbar">
+    <button type="button" id="sidebar-toggle" class="sn-icon-btn" aria-label="Open project history" aria-controls="project-sidebar" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+        <rect x="3.5" y="4" width="17" height="16" rx="1"/><path d="M9 4v16"/>
+      </svg>
+    </button>
+
+    <button type="button" class="sn-topbar-logo sn-nav-btn active" data-view="loop" aria-label="Go to build workspace">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 14 L14 3 L14 9 L21 9 L10 21 L10 15 Z"/>
+      </svg>
+      <span class="sn-logo-text">supersonic</span>
+    </button>
+
+    <div class="sn-topbar-right">
+      <div id="pillar-dots" class="sn-pillar-dots" title="Readiness"></div>
+      <span id="health-badge" class="sn-badge">…</span>
+      <button type="button" class="sn-icon-btn sn-nav-btn" data-view="settings" aria-label="Open settings" title="Settings">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.18.37.39.72.6 1 .29.38.64.4 1.1.4h.09v4h-.09a1.7 1.7 0 0 0-1.7.6Z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <aside id="project-sidebar" class="sn-sidebar" aria-hidden="true">
+    <div class="sn-sidebar-head">
+      <div>
+        <p class="sn-sidebar-kicker">History</p>
+        <h2>Your projects</h2>
+      </div>
+      <button type="button" id="sidebar-close" class="sn-icon-btn" aria-label="Close project history">×</button>
+    </div>
+    <ul id="project-list" class="sn-project-list"></ul>
+  </aside>
+
+  <div id="view-loop" class="sn-view">
+    <main class="sn-main">
+      <section class="loop-composer">
+        <div class="loop-composer-intro">
+          <h1>Let's build</h1>
+          <p>Give it a prompt, or leave it open — Supersonic grounds an idea, plans, and starts the Checkpoint → Verify → Rollback loop.</p>
+        </div>
+
+        <div class="loop-prompt-shell">
+          <label class="sn-label" for="loop-prompt">Optional prompt</label>
+          <textarea id="loop-prompt" class="sn-textarea" rows="5" placeholder="Enter a prompt for what you want to build…"></textarea>
+
+          <div class="loop-prompt-footer">
+            <div class="loop-compact-options">
+              <label class="loop-compact-field" for="project-agent">
+                <span>Agent</span>
+                <select id="project-agent" class="sn-select">
+                  <option value="claude">Claude Code</option>
+                  <option value="codex">Codex</option>
+                  <option value="opencode">OpenCode</option>
+                  <option value="cursor">Cursor Agent</option>
+                  <option value="aider">Aider</option>
+                </select>
+              </label>
+              <label class="loop-compact-field loop-folder-field" for="loop-folder">
+                <span>Folder</span>
+                <input type="text" id="loop-folder" class="sn-input" placeholder="Default local folder" />
+              </label>
+              <button type="button" id="loop-folder-clear" class="sn-text-btn" title="Use default folder">Reset</button>
+            </div>
+
+            <button type="button" id="loop-btn" class="sn-send-btn" aria-label="Start build">
+              <span class="sn-btn-label">Send</span>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m5 12 14-7-4 14-3-6-7-1Z"/><path d="m12 13 7-8"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section id="run-workspace" class="sn-run-workspace hidden">
+        <div class="sn-run-heading">
+          <div>
+            <p class="sn-run-eyebrow">Current project</p>
+            <h2>Build progress</h2>
+          </div>
+          <span id="live-status" class="sn-live-status">Idle</span>
+        </div>
+
+        <div id="run-progress" class="sn-run-progress hidden" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+          <div id="run-progress-fill" class="sn-run-progress-fill"></div>
+        </div>
+
+        <div id="mission-strip" class="sn-mission-strip hidden">
+          <span id="mission-research" class="sn-mission-chip">Setup</span>
+          <span id="mission-race" class="sn-mission-chip hidden">Racing</span>
+          <span id="mission-route" class="sn-mission-chip sn-mission-route">Routing…</span>
+        </div>
+
+        <section class="sn-live" id="live-section">
+          <div class="sn-live-grid">
+            <div class="sn-live-primary">
+              <div id="mission-panes" class="sn-mission-panes hidden">
+                <div class="sn-mission-tabs" role="tablist">
+                  <button type="button" class="sn-mtab active" data-pane="agent" role="tab">Agent</button>
+                  <button type="button" class="sn-mtab" data-pane="verify" role="tab">Verify</button>
+                  <button type="button" class="sn-mtab" data-pane="diff" role="tab">Diff</button>
+                  <button type="button" class="sn-mtab" data-pane="race" role="tab">Race</button>
+                </div>
+                <div id="pane-agent" class="sn-mpane" role="tabpanel">
+                  <div id="agent-panel" class="sn-agent-panel">
+                    <div class="sn-agent-head">
+                      <span class="sn-agent-title"><span id="agent-live-dot" class="sn-agent-dot hidden"></span> Live stream</span>
+                      <span id="agent-tool" class="sn-agent-tool"></span>
+                    </div>
+                    <pre id="agent-log" class="sn-agent-log"></pre>
+                  </div>
+                </div>
+                <div id="pane-verify" class="sn-mpane hidden" role="tabpanel">
+                  <pre id="verify-log" class="sn-agent-log sn-pane-placeholder">Verify gate results (tests, lint, goal critic, thrash detector) appear here each turn.</pre>
+                </div>
+                <div id="pane-diff" class="sn-mpane hidden" role="tabpanel">
+                  <pre id="diff-log" class="sn-agent-log sn-pane-placeholder">Diff since the last checkpoint streams here.</pre>
+                </div>
+                <div id="pane-race" class="sn-mpane hidden" role="tabpanel">
+                  <div id="race-log" class="sn-race-log"><p class="sn-dim">No races run yet — enable Agent Racing in Settings.</p></div>
+                </div>
+              </div>
+
+              <div id="tracking-panel" class="sn-tracking-panel hidden">
+                <div class="sn-panel-title">Ship targets</div>
+                <div class="sn-tracking-links">
+                  <a id="link-github" href="#" target="_blank" rel="noopener" class="sn-track-btn sn-track-github hidden">GitHub →</a>
+                  <a id="link-linear" href="#" target="_blank" rel="noopener" class="sn-track-btn sn-track-linear hidden">Linear →</a>
+                </div>
+                <p id="tracking-detail" class="sn-tracking-detail"></p>
+              </div>
+            </div>
+
+            <div class="sn-live-secondary">
+              <div id="setup-section" class="sn-phase-section">
+                <div class="sn-phase-label">Setup <span class="sn-phase-hint">once</span></div>
+                <div id="setup-timeline" class="sn-timeline"></div>
+              </div>
+              <div id="loop-section" class="sn-phase-section hidden">
+                <div class="sn-phase-label">Build loop <span id="loop-turn-label" class="sn-phase-hint"></span></div>
+                <div id="loop-timeline" class="sn-timeline"></div>
+              </div>
+
+              <div id="checkpoint-panel" class="sn-checkpoint-panel hidden">
+                <div class="sn-panel-title">Checkpoint timeline</div>
+                <div id="checkpoint-track" class="sn-checkpoint-track"></div>
+              </div>
+
+              <div id="ledger-panel" class="sn-ledger-panel hidden">
+                <div class="sn-panel-title">Continuity Graph <span id="ledger-stat" class="sn-phase-hint"></span></div>
+                <div id="ledger-list" class="sn-ledger-list"></div>
+              </div>
+
+              <div id="race-panel" class="sn-race-panel hidden">
+                <div class="sn-panel-title">Agent race leaderboard</div>
+                <div id="race-leaderboard" class="sn-race-leaderboard"></div>
+              </div>
+
+              <div id="playbook-panel" class="sn-playbook-panel hidden">
+                <div class="sn-panel-title">Updates</div>
+                <ul id="play-by-play" class="sn-playbook"></ul>
+              </div>
+              <div id="planner-panel" class="sn-planner-panel hidden">
+                <div class="sn-panel-title">Next turn</div>
+                <ul id="follow-up-list" class="sn-follow-list"></ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="sn-files hidden" id="files-section">
+          <div class="sn-panel-title">Workdir</div>
+          <ul id="file-list" class="sn-file-list"></ul>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div id="view-settings" class="sn-view hidden">
+    <main class="sn-page-wrap sn-page-narrow">
+      <header class="sn-page-header">
+        <p class="sn-page-eyebrow">Settings</p>
+        <h1>Connections</h1>
+        <p class="sn-page-lead">One LLM key is all this needs. Everything else is optional. Stored locally in <code>~/.supersonic/config.json</code>.</p>
+        <div id="keys-pillar-bar" class="sn-keys-pillar-bar"></div>
+      </header>
+      <form id="secrets-form" class="sn-keys-form">
+        <section class="sn-keys-card">
+          <h2>LLM provider <span class="sn-req-tag">one required</span></h2>
+          <p class="sn-keys-desc">Auto-detected in this order: Anthropic → OpenAI → local Ollama. Only one key is needed to run.</p>
+          <div class="sn-keys-grid">
+            <label class="sn-key-field"><span>Anthropic API key</span><input name="anthropic_api_key" type="password" autocomplete="off" /></label>
+            <label class="sn-key-field"><span>OpenAI API key</span><input name="openai_api_key" type="password" autocomplete="off" /></label>
+            <label class="sn-key-field"><span>Ollama base URL</span><input name="ollama_base_url" type="text" placeholder="http://localhost:11434" /></label>
+          </div>
+        </section>
+
+        <section class="sn-keys-card">
+          <h2>Coding agent + Agent Racing</h2>
+          <p class="sn-keys-desc">Bring your own coding-agent CLI. Enable racing to bandit-select between two or more, with a hard per-run cost ceiling.</p>
+          <div class="sn-keys-grid">
+            <label class="sn-key-field"><span>Default agent</span>
+              <select name="default_agent">
+                <option value="claude">Claude Code (local CLI)</option>
+                <option value="codex">Codex (local CLI)</option>
+                <option value="opencode">OpenCode</option>
+                <option value="cursor">Cursor Agent</option>
+                <option value="aider">Aider</option>
+              </select>
+            </label>
+            <label class="sn-key-field sn-key-checkbox"><span>Enable Agent Racing</span><input name="race_enabled" type="checkbox" /></label>
+            <label class="sn-key-field"><span>Race roster (comma-separated)</span><input name="race_agents" type="text" placeholder="claude,codex" /></label>
+            <label class="sn-key-field"><span>Max race turns / run</span><input name="max_race_turns" type="number" min="0" max="60" value="5" /></label>
+          </div>
+        </section>
+
+        <section class="sn-keys-card">
+          <h2>Shipping</h2>
+          <p class="sn-keys-desc">Native git + the <code>gh</code> CLI — no middleman. Requires <code>gh auth login</code> once, outside Supersonic.</p>
+          <div class="sn-keys-grid">
+            <label class="sn-key-field"><span>Ship mode</span>
+              <select name="ship_mode">
+                <option value="pr">Open a pull request</option>
+                <option value="push">Push straight to default branch</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="sn-keys-card">
+          <h2>Optional plugins</h2>
+          <p class="sn-keys-desc">None of these are required. Leave blank to skip.</p>
+          <div class="sn-keys-grid">
+            <label class="sn-key-field"><span>Tavily API key (research)</span><input name="tavily_api_key" type="password" autocomplete="off" /></label>
+            <label class="sn-key-field"><span>Linear API key</span><input name="linear_api_key" type="password" autocomplete="off" /></label>
+            <label class="sn-key-field"><span>Linear team ID</span><input name="linear_team_id" type="text" /></label>
+            <label class="sn-key-field sn-key-field-wide"><span>Completion webhook URL</span><input name="notify_webhook_url" type="text" placeholder="https://hooks.zapier.com/…" /></label>
+          </div>
+        </section>
+
+        <section class="sn-keys-card">
+          <h2>Loop tuning</h2>
+          <div class="sn-keys-grid">
+            <label class="sn-key-field"><span>Continuity Graph budget (tokens/turn)</span><input name="ledger_context_budget" type="number" min="500" max="30000" value="6000" /></label>
+            <label class="sn-key-field"><span>Max turns</span><input name="max_turn_budget" type="number" min="1" max="200" value="60" /></label>
+            <label class="sn-key-field"><span>Min verify signals to pass</span><input name="verify_min_signals_pass" type="number" min="1" max="4" value="3" /></label>
+          </div>
+        </section>
+
+        <div class="sn-keys-actions">
+          <button type="submit" class="sn-btn sn-btn-primary">Save settings</button>
+          <span id="secrets-status" class="sn-keys-status"></span>
+        </div>
+      </form>
+    </main>
+  </div>
+
+  <script src="/assets/js/dashboard.js?v=1"></script>
+  <script src="/assets/js/dashboard-shell.js?v=1"></script>
+</body>
+</html>

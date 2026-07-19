@@ -1,0 +1,193 @@
+.ob-page {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+}
+.ob-bg {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(74, 144, 164, 0.12), transparent);
+  pointer-events: none;
+}
+.ob-shell {
+  position: relative;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+}
+.ob-shell-wide { max-width: 720px; }
+.ob-fieldset {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 20px;
+  margin-bottom: 20px;
+  background: transparent;
+}
+.ob-fieldset legend {
+  font-weight: 600;
+  font-size: 14px;
+  padding: 0 6px;
+}
+.ob-req {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--pear-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.ob-fieldset-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 14px;
+  line-height: 1.45;
+}
+.ob-form-grid-2 { grid-template-columns: 1fr 1fr; }
+.ob-span-2 { grid-column: 1 / -1; }
+.ob-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 48px;
+}
+.ob-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--serif);
+  font-size: 22px;
+  text-transform: lowercase;
+  letter-spacing: -0.02em;
+}
+.ob-steps { display: flex; gap: 8px; }
+.ob-steps span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line);
+  transition: background 0.2s, transform 0.2s;
+}
+.ob-steps span.active { background: var(--sonic-accent); transform: scale(1.15); }
+.ob-steps span.done { background: var(--pear-dark); }
+.ob-panel h1 {
+  font-family: var(--serif);
+  font-size: clamp(32px, 6vw, 44px);
+  font-weight: 400;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  margin: 0 0 16px;
+}
+.ob-eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--sonic-accent);
+  margin: 0 0 12px;
+}
+.ob-lead {
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0 0 28px;
+}
+.ob-flow {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 32px;
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+.ob-flow li {
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.ob-form-grid {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.ob-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.ob-form input,
+.ob-form select {
+  padding: 10px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  font: inherit;
+  background: transparent;
+}
+.ob-form input:focus,
+.ob-form select:focus {
+  outline: none;
+  border-bottom-color: var(--sonic-accent);
+}
+.ob-connections {
+  border-top: 1px solid var(--line);
+  margin-bottom: 20px;
+}
+.ob-connection {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px 16px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+.ob-connection .ob-connect { min-width: 150px; border-radius: 0; }
+.ob-connection-status {
+  grid-column: 1 / -1;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.ob-connection-status.is-connected { color: var(--pear-dark); }
+.ob-connection-status.is-error { color: #a34747; }
+.ob-how {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 32px;
+  display: grid;
+  gap: 16px;
+}
+.ob-how li {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.ob-how li span {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--sonic-accent-soft);
+  color: #3d6a9e;
+  font-weight: 600;
+  font-size: 13px;
+}
+.ob-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.ob-status {
+  min-height: 1.25em;
+  font-size: 13px;
+  color: var(--pear-dark);
+  margin-bottom: 12px;
+}
+.ob-finish { display: inline-flex; text-decoration: none; }
+
+@media (max-width: 560px) {
+  .ob-form-grid-2 { grid-template-columns: 1fr; }
+  .ob-connection { grid-template-columns: 1fr; align-items: stretch; }
+  .ob-connection-status { grid-column: 1; }
+  .ob-connection .ob-connect { width: 100%; }
+}

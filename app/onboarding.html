@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Welcome — Supersonic</title>
+  <meta name="theme-color" content="rgb(251,251,248)" />
+  <link rel="stylesheet" href="/assets/css/style.css?v=2" />
+  <link rel="stylesheet" href="/assets/css/sonic.css?v=1" />
+  <link rel="stylesheet" href="/assets/css/onboarding.css?v=4" />
+</head>
+<body class="ob-page">
+  <div class="ob-bg" aria-hidden="true"></div>
+  <main class="ob-shell ob-shell-wide">
+    <header class="ob-header">
+      <div class="ob-logo"><span>supersonic</span></div>
+      <div class="ob-steps" id="ob-steps" aria-label="Progress"></div>
+    </header>
+
+    <section class="ob-panel" data-step="0">
+      <p class="ob-eyebrow">Welcome</p>
+      <h1>One key. That's the whole setup.</h1>
+      <p class="ob-lead">Supersonic checkpoints, verifies, and rolls back every turn automatically, remembers your project in a structured Continuity Graph instead of a flat transcript, and can bandit-race two coding agents against each other to learn which one actually wins at your kind of work.</p>
+      <ul class="ob-flow">
+        <li><strong>One LLM key</strong> — Anthropic, OpenAI, or a local Ollama server</li>
+        <li><strong>Checkpoint → Verify → Rollback</strong> — nothing ships unverified</li>
+        <li><strong>Continuity Graph</strong> — structured memory, not truncated context</li>
+        <li><strong>Bandit-Gated Agent Racing</strong> — optional, off by default</li>
+      </ul>
+      <button type="button" class="btn btn-pear ob-next">Get started</button>
+    </section>
+
+    <section class="ob-panel hidden" data-step="1">
+      <p class="ob-eyebrow">Provider</p>
+      <h1>Add one API key.</h1>
+      <p class="ob-lead">Stored only in <code>~/.supersonic/config.json</code> — never uploaded anywhere else. Auto-detected in this order: Anthropic → OpenAI → local Ollama.</p>
+      <form id="ob-keys-form" class="ob-form">
+        <fieldset class="ob-fieldset">
+          <legend>LLM provider (pick one)</legend>
+          <div class="ob-form-grid ob-form-grid-2">
+            <label><span>Anthropic API key</span><input name="anthropic_api_key" type="password" autocomplete="off" /></label>
+            <label><span>OpenAI API key</span><input name="openai_api_key" type="password" autocomplete="off" /></label>
+            <label><span>Ollama base URL (optional, local)</span><input name="ollama_base_url" type="text" placeholder="http://localhost:11434" /></label>
+          </div>
+        </fieldset>
+        <fieldset class="ob-fieldset">
+          <legend>Coding agent</legend>
+          <p class="ob-fieldset-hint">Uses your coding agent's own local CLI login. Nothing extra to configure here.</p>
+          <label><span>Default agent</span>
+            <select name="default_agent" id="ob-default-agent">
+              <option value="claude">Claude Code (local CLI)</option>
+              <option value="codex">Codex (local CLI)</option>
+              <option value="opencode">OpenCode</option>
+              <option value="cursor">Cursor Agent</option>
+              <option value="aider">Aider</option>
+            </select>
+          </label>
+        </fieldset>
+        <p id="ob-keys-status" class="ob-status"></p>
+        <div class="ob-actions">
+          <button type="button" class="btn btn-ghost ob-back">Back</button>
+          <button type="submit" class="btn btn-pear">Save &amp; continue</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="ob-panel hidden" data-step="2">
+      <p class="ob-eyebrow">How it works</p>
+      <h1>Prompt, folder, loop.</h1>
+      <p class="ob-lead">Enter an optional prompt, choose a local folder, and send. Every turn is committed only if it earns it — the live view shows the checkpoint timeline, the Continuity Graph, and (if you turn on racing) the agent leaderboard.</p>
+      <ol class="ob-how">
+        <li><span>1</span><div><strong>Prompt</strong> — describe what to build, or leave it blank and Supersonic grounds an idea.</div></li>
+        <li><span>2</span><div><strong>Folder</strong> — choose where the project should live locally.</div></li>
+        <li><span>3</span><div><strong>Send</strong> — it plans, builds, verifies, checkpoints or rolls back, and ships to GitHub.</div></li>
+      </ol>
+      <div class="ob-actions">
+        <button type="button" class="btn btn-ghost ob-back">Back</button>
+        <button type="button" class="btn btn-pear ob-next">Continue</button>
+      </div>
+    </section>
+
+    <section class="ob-panel hidden" data-step="3">
+      <p class="ob-eyebrow">Ready</p>
+      <h1>Let's build.</h1>
+      <p class="ob-lead" id="ob-ready-lead">Your provider is connected.</p>
+      <a href="/dashboard" class="btn btn-pear ob-finish" id="ob-finish">Open Supersonic</a>
+    </section>
+  </main>
+  <script src="/assets/js/onboarding.js?v=4"></script>
+</body>
+</html>
