@@ -152,6 +152,31 @@ def verify_receipts(workdir: str = typer.Argument(..., help="Path to a project's
 
 
 @app.command()
+def replay(
+    workdir: str = typer.Argument(..., help="Path to a project's working tree"),
+    out: str = typer.Option("", help="Output HTML path (default: <workdir>/replay.html)"),
+) -> None:
+    """Generate Black Box Replay — a single self-contained HTML timeline of
+    the whole build: every turn's diff, Verify gate breakdown, Signed Turn
+    Receipt (independently re-verified, not just displayed), and any rule
+    the Self-Evolving Rules Engine learned. Read-only: never runs the agent,
+    never touches the project's working tree except to write the output
+    file. Open the result in any browser, offline, from any checkout."""
+    from pathlib import Path
+
+    from supersonic.loop.replay import build_replay_html
+
+    wd = Path(workdir)
+    if not wd.exists():
+        raise typer.BadParameter(f"no such directory: {workdir}")
+
+    html = build_replay_html(wd)
+    out_path = Path(out) if out else wd / "replay.html"
+    out_path.write_text(html, encoding="utf-8")
+    console.print(f"[green]Wrote[/] {out_path}")
+
+
+@app.command()
 def portfolio() -> None:
     """Portfolio health summary across all local projects."""
     from supersonic.store import portfolio_summary

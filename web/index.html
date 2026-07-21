@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Supersonic — Ships fast, tells you exactly what to check before you trust it</title>
-  <meta name="description" content="Supersonic pairs an autonomous Checkpoint/Verify/Rollback build loop with Review Risk, a Dependency Trust Gate, and a Secret Leak Gate: every shipped turn's changed files are ranked by what to check, every new dependency is checked against the real registry, and every diff is scanned for hardcoded credentials before it ships." />
+  <meta name="description" content="Supersonic pairs an autonomous Checkpoint/Verify/Rollback build loop with Black Box Replay (a self-contained, independently-verifiable HTML timeline of every turn), Review Risk, a Dependency Trust Gate, and a Secret Leak Gate: every shipped turn's changed files are ranked by what to check, every new dependency is checked against the real registry, and every diff is scanned for hardcoded credentials before it ships." />
   <meta property="og:title" content="Supersonic" />
-  <meta property="og:description" content="Review Risk ranks what to actually check on every shipped turn. Dependency Trust Gate blocks hallucinated packages. Secret Leak Gate catches hardcoded credentials before they ship. Checkpoint → Verify → Rollback underneath. One API key. Fully local." />
+  <meta property="og:description" content="Black Box Replay: a self-contained HTML timeline of your whole build, with signatures verified server-side and diff hashes independently re-derived in your own browser. Review Risk ranks what to actually check on every shipped turn. Dependency Trust Gate blocks hallucinated packages. Secret Leak Gate catches hardcoded credentials before they ship. Checkpoint → Verify → Rollback underneath. One API key. Fully local." />
   <meta property="og:type" content="website" />
   <meta name="theme-color" content="#fbf9f6" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -142,6 +142,23 @@
 
       <section class="df-features">
         <div class="df-features-inner">
+          <article class="df-feature-card">
+            <div class="df-feature-visual df-feature-visual--blue">
+              <div class="df-feature-inner">
+                <ul class="feat-int-list">
+                  <li><strong>Turn 6 signature</strong><span class="feat-int-ok">✓ verified server-side</span></li>
+                  <li><strong>Turn 6 diff hash</strong><span class="feat-int-ok">✓ matches — recomputed in your browser</span></li>
+                  <li><strong>Turn 3 diff hash</strong><span class="feat-int-warn">not offered — turn 4 rolled back first</span></li>
+                </ul>
+                <p class="feat-stat">sonic replay<span>one HTML file, no server, opens offline in any browser</span></p>
+              </div>
+            </div>
+            <div class="df-feature-copy">
+              <h3>Black Box Replay: scrub through your whole build, turn by turn.</h3>
+              <p>One self-contained HTML file — no server, no network — assembled entirely from what Supersonic already writes to disk: every turn's diff, its full Verify gate breakdown, its Signed Turn Receipt, and any rule the Rules Engine learned. Every receipt's signature is verified server-side, with the exact function <code>sonic verify-receipts</code> uses. Every turn's diff hash is independently re-derived <em>in your own browser</em> via the Web Crypto API — but only where the page-generation step has already proven that recomputation is honest: it hashes the diff it reconstructed and checks it against the receipt's own hash before ever showing the button. A turn with a rollback before it shows the diff for reading with a plain note about why the button isn't offered, instead of a badge that's silently wrong.</p>
+            </div>
+          </article>
+
           <article class="df-feature-card">
             <div class="df-feature-visual df-feature-visual--warm">
               <div class="df-feature-inner">
@@ -481,6 +498,7 @@ sonic run --demo
 sonic doctor</pre>
         </div>
         <div class="differentiator-row" id="stack">
+          <span class="differentiator-pill">Black Box Replay</span>
           <span class="differentiator-pill">Review Risk</span>
           <span class="differentiator-pill">Dependency Trust Gate</span>
           <span class="differentiator-pill">Secret Leak Gate</span>
@@ -524,6 +542,10 @@ sonic doctor</pre>
           <details class="faq-item">
             <summary>What is Risk-Aware Model Escalation?</summary>
             <p>A feedback loop from Review Risk back into Build and Verify, not a new gate. After a turn ships, if its Review Risk brief contains at least one HIGH-risk file (large blast radius, a sensitive-path match, or no matching test change), the <em>next</em> turn — and only that one — runs the coding-agent CLI and Supersonic's own critic call at a stronger model. Each coding agent gets its own configured escalation target (a verified flag: <code>--model</code> for Claude Code/Codex/OpenCode/Aider, <code>--model</code> for Cursor Agent's CLI), and the critic call uses your provider's own default (strongest) model instead of its normal fast model. It decays automatically the turn after — there's no standing state, just "was the immediately preceding turn's shipped diff flagged high-risk." If you haven't configured an escalation model for the agent you're using, or the previous turn had no high-risk files, nothing changes and the loop runs at its normal cost.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Does Black Box Replay's "recompute in your browser" button actually run independently, or is it just decoration?</summary>
+            <p>It actually runs — it's the Web Crypto API's <code>crypto.subtle.digest('SHA-256', ...)</code>, hashing the exact diff text embedded in the page and comparing it to that turn's receipt, live, in your browser, with zero trust placed in whatever generated the page. What's decoration-free about it is also what limits it: the button is only ever shown for a turn where the page-generation step has already verified, server-side, that the diff it reconstructed from git history hashes to the exact value the receipt was signed over. If a turn had a failed-and-rolled-back turn before it, the reconstructed diff picks up that turn's preserved Continuity Graph entries in a way this feature doesn't attempt to separate out byte-for-byte — so the button is simply not offered for that turn, with a plain explanation, rather than risking a false "verified" claim.</p>
           </details>
           <details class="faq-item">
             <summary>Does PTY-native execution actually intercept file writes before they hit disk?</summary>

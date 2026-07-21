@@ -67,6 +67,7 @@ agent produced it). It's gone; one agent per project, no bandit tuning.
 | `loop/rollback.py` | Hard git reset to the last verified checkpoint |
 | `loop/planner.py` | Provider-agnostic plan / brand / next-turn routing |
 | `loop/multi_repo.py` | Multi-Repository State Anchoring — coordinates checkpoint/rollback across linked repo working directories |
+| `loop/replay.py` | Black Box Replay — assembles ledger + checkpoints + receipts + rules into one self-contained HTML timeline |
 | `memory/` | Continuity Graph — `schema.py` (entries), `ledger.py` (append-only store), `graph.py` (retrieval), `distill.py` (compaction), `rules_engine.py` (Self-Evolving Rules Engine) |
 | `verify/` | `qa.py` (tests/lint), `critic.py` (goal satisfaction), `thrash.py` (oscillation detector), `live_syntax_watch.py` (concurrent mid-turn syntax watcher), `gate.py` (combined decision) |
 | `providers/` | `anthropic_provider.py`, `openai_provider.py`, `ollama_provider.py`, auto-detected in `__init__.py` |
@@ -140,6 +141,8 @@ Shared design tokens: `style.css` + `sonic.css`.
 - `doctor` — validate provider keys, agent CLIs, `git`/`gh` on PATH
 - `projects` / `portfolio` — list local builds
 - `queue-add` / `queue-run` / `schedule` — overnight portfolio queue
+- `verify-receipts` — cryptographically verify every Signed Turn Receipt in a project, offline
+- `replay` — generate Black Box Replay, a self-contained HTML timeline of the whole build
 
 ---
 

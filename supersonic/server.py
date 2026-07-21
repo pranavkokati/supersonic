@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -18,6 +18,7 @@ from supersonic.agents.runner import available_agents
 from supersonic.config import UserSecrets, ensure_dirs, get_settings, load_secrets, save_secrets
 from supersonic.events import subscribe
 from supersonic.loop.checkpoint import CheckpointManager, run_git
+from supersonic.loop.replay import build_replay_html
 from supersonic.memory import ContinuityLedger
 from supersonic.providers import available_providers
 from supersonic.store import (
@@ -299,6 +300,21 @@ def api_project_checkpoints(pid: str) -> Dict[str, Any]:
         return {"project_id": pid, "checkpoints": []}
     checkpoints = CheckpointManager(wd).list()
     return {"project_id": pid, "checkpoints": [c.to_dict() for c in checkpoints]}
+
+
+@app.get("/api/projects/{pid}/replay")
+def api_project_replay(pid: str) -> HTMLResponse:
+    """Black Box Replay — a self-contained HTML timeline of the whole build
+    (see loop/replay.py). Generated fresh on every request directly from the
+    project's own git history, Continuity Graph, and Signed Turn Receipts;
+    nothing is cached, and nothing here re-runs the loop or the agent."""
+    p = get_project(pid)
+    if not p or not p.workdir:
+        raise HTTPException(404, "project not found")
+    wd = Path(p.workdir)
+    if not wd.exists():
+        raise HTTPException(404, "project workdir not found")
+    return HTMLResponse(content=build_replay_html(wd))
 
 
 @app.get("/api/validate")

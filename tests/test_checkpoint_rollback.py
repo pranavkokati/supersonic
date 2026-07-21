@@ -90,6 +90,53 @@ def test_rollback_preserves_continuity_dir(tmp_path):
     assert (continuity / "ledger.jsonl").exists()
 
 
+def test_rollback_preserves_supersonic_dir(tmp_path):
+    """Regression test: the Self-Evolving Rules Engine writes a brand-new
+    .supersonic/rules.json on the SAME failed turn that's about to be rolled
+    back (memory/rules_engine.py's observe_failure(), called from
+    orchestrator.py's failure branch just before rollback_to()). Before this
+    fix, rollback_to() only excluded .continuity from `git clean -fd`, so a
+    rule learned on turn N was silently deleted by the rollback that runs a
+    few lines later in the exact same turn — the feature could never
+    actually persist a rule in real operation. .supersonic/ also houses
+    Multi-Repository State Anchoring's linked_repos.json, so this covers
+    both features with one fix."""
+    mgr = CheckpointManager(tmp_path)
+    (tmp_path / "main.py").write_text("v1")
+    good_checkpoint = mgr.create(1, "known good")
+
+    supersonic_dir = tmp_path / ".supersonic"
+    supersonic_dir.mkdir(exist_ok=True)
+    (supersonic_dir / "rules.json").write_text('[{"id": "tests-2", "rule_text": "always run pytest first"}]')
+
+    (tmp_path / "main.py").write_text("v2 broken")
+    mgr.create(2, "bad attempt")
+
+    rollback_to(tmp_path, good_checkpoint)
+    assert (supersonic_dir / "rules.json").exists()
+    assert "always run pytest first" in (supersonic_dir / "rules.json").read_text()
+
+
+def test_rollback_preserves_both_continuity_and_supersonic_together(tmp_path):
+    mgr = CheckpointManager(tmp_path)
+    (tmp_path / "main.py").write_text("v1")
+    good_checkpoint = mgr.create(1, "known good")
+
+    continuity = tmp_path / ".continuity"
+    continuity.mkdir(exist_ok=True)
+    (continuity / "ledger.jsonl").write_text('{"kind": "failure"}\n')
+    supersonic_dir = tmp_path / ".supersonic"
+    supersonic_dir.mkdir(exist_ok=True)
+    (supersonic_dir / "rules.json").write_text("[]")
+
+    (tmp_path / "main.py").write_text("v2 broken")
+    mgr.create(2, "bad attempt")
+
+    rollback_to(tmp_path, good_checkpoint)
+    assert (continuity / "ledger.jsonl").exists()
+    assert (supersonic_dir / "rules.json").exists()
+
+
 def test_diff_since_reflects_uncommitted_changes(tmp_path):
     mgr = CheckpointManager(tmp_path)
     (tmp_path / "main.py").write_text("v1\n")

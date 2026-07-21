@@ -122,6 +122,8 @@
     document.querySelector("#ledger-panel")?.classList.remove("hidden");
     document.querySelector("#playbook-panel")?.classList.remove("hidden");
     document.querySelector("#planner-panel")?.classList.remove("hidden");
+    const replayLink = document.querySelector("#replay-link");
+    if (replayLink && state.projectId) replayLink.href = `/api/projects/${state.projectId}/replay`;
 
     const es = new EventSource(`/api/runs/${runId}/stream`);
     state.stream = es;

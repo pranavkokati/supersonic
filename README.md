@@ -10,6 +10,37 @@ and unlike a single-call router that blindly decides what happens next, it can o
 they clear an independent, up-to-eight-signal Verify gate. A failed turn is rolled back to the last proven-good
 state, not left to compound into a worse one.
 
+## Black Box Replay
+
+Every build produces `sonic replay <workdir>` — a single, self-contained HTML file, no server or network
+required, that opens in any browser as a scrubbable timeline of the entire build: every turn's diff, its full
+Verify gate breakdown, its Signed Turn Receipt, and any rule the Self-Evolving Rules Engine learned. It's built
+entirely from data Supersonic already writes to disk — the Continuity Graph ledger, the git checkpoint history,
+Signed Turn Receipts, `.supersonic/rules.md` — so it costs nothing extra to generate and there's nothing to
+fabricate: every claim on the page is either read straight off disk or independently re-derived in your
+browser.
+
+Two specific things it verifies, and one it's explicit about *not* verifying:
+
+- **Signature verification is server-side**, using the exact same `verify_receipt_file()` function
+  `sonic verify-receipts` already uses — this page does not reimplement Ed25519 in JavaScript. A from-scratch
+  client-side verifier would have to reproduce Python's exact canonical-JSON byte encoding to check a signature
+  correctly, and getting that byte-for-byte right for every payload shape is a real, easy-to-get-subtly-wrong
+  problem. A security feature that's subtly wrong is worse than one that's honestly server-checked once.
+- **Diff hashes are re-derived client-side**, in your browser, with no trust placed in whatever generated the
+  page: the Web Crypto API's SHA-256 over the exact diff text embedded on the page, compared live against that
+  turn's receipt. Before it offers this button at all, the page generator checks its own work — it hashes the
+  diff it just reconstructed and compares it to the receipt's stored hash, server-side, and only exposes the
+  button where that check actually passes. A turn with an intervening failed-and-rolled-back turn before it (or
+  a diff too large to embed in full) shows the diff for reading, with an honest note about why independent
+  recomputation isn't offered for it — not a silently wrong "verified" badge.
+- **Prompt hashes are not independently re-checkable, and the page says so.** The raw prompt text isn't
+  retained past the turn that used it — only its SHA-256 fingerprint is, by design, since keeping every
+  historical prompt verbatim would bloat every checkout indefinitely. The fingerprint is still covered by the
+  receipt's Ed25519 signature; it just can't be recomputed from scratch here.
+
+See `supersonic/loop/replay.py` for the full implementation and its extended honesty notes.
+
 ## What makes this different
 
 Almost every agentic coding tool competes on the same axis right now: how fast and how autonomously it can
@@ -148,6 +179,13 @@ sonic verify-receipts <path-to-project>
 Cryptographically verifies every Signed Turn Receipt in a project, offline — no access to the machine that
 generated them required.
 
+```bash
+sonic replay <path-to-project> [--out replay.html]
+```
+
+Generates Black Box Replay — a single self-contained HTML timeline of the whole build. Open it in any browser,
+offline, from any checkout. See "Black Box Replay" above.
+
 ## Pipeline
 
 | Stage | What happens |
@@ -182,7 +220,8 @@ folded into every prompt from then on.
 supersonic/          Python package
   providers/          LLM provider abstraction (Anthropic, OpenAI, Ollama) — auto-detected
   memory/             Continuity Graph — ledger, retrieval, distillation; rules_engine.py — Self-Evolving Rules Engine
-  loop/               Checkpoint / Rollback / Planner / Orchestrator; multi_repo.py — Multi-Repository State Anchoring
+  loop/               Checkpoint / Rollback / Planner / Orchestrator; multi_repo.py — Multi-Repository State
+                      Anchoring; replay.py — Black Box Replay
   verify/             Tests, lint, critic, thrash, dependency trust, secret leak, test quality, receipts, live syntax watch, combined gate
   agents/             Coding-agent CLI runner; pty_runner.py — optional PTY-native execution
   integrations/       Native git + gh CLI shipping, optional Linear, optional webhook notify
