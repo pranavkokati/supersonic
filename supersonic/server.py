@@ -74,6 +74,11 @@ class SecretsUpdate(BaseModel):
     dle_live_syntax_watch: Optional[bool] = None
     dle_rules_evolution: Optional[bool] = None
     rules_evolution_min_repeats: Optional[int] = None
+    dle_docker_sandbox: Optional[bool] = None
+    docker_sandbox_image: Optional[str] = None
+    docker_memory_limit: Optional[str] = None
+    docker_cpu_limit: Optional[str] = None
+    docker_pids_limit: Optional[int] = None
 
 
 class ProjectCreate(BaseModel):

@@ -75,6 +75,15 @@ def doctor() -> None:
     for agent_info in available_agents():
         table.add_row(f"Agent: {agent_info['id']}", "✓ on PATH" if agent_info["available"] else "not found")
 
+    from supersonic.agents.sandbox_runner import docker_available
+
+    if docker_available():
+        image = (sec.docker_sandbox_image or "").strip()
+        docker_status = f"✓ daemon reachable, image={image}" if image else "✓ daemon reachable, but no docker_sandbox_image configured"
+    else:
+        docker_status = "— optional, Docker Sandbox disabled (binary or daemon not reachable)"
+    table.add_row("Docker Sandbox", docker_status)
+
     console.print(table)
 
 

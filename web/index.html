@@ -314,6 +314,23 @@
           </article>
 
           <article class="df-feature-card">
+            <div class="df-feature-visual df-feature-visual--blue">
+              <div class="df-feature-inner">
+                <ul class="feat-int-list">
+                  <li><strong>--cap-drop</strong><span class="feat-int-ok">ALL</span></li>
+                  <li><strong>mount</strong><span class="feat-int-ok">workdir only</span></li>
+                  <li><strong>network egress</strong><span class="feat-int-warn">not sandboxed</span></li>
+                </ul>
+                <p class="feat-stat">one volume<span>the only host path a runaway shell command inside the container can reach</span></p>
+              </div>
+            </div>
+            <div class="df-feature-copy">
+              <h3>Docker Sandbox: contain the blast radius, not just the workdir.</h3>
+              <p>Checkpoint/rollback already protects a project's own workdir with a hard git reset — but that's the only thing it protects. A coding agent's shell can reach anywhere the host OS user can: another project's folder, credentials in your home directory, anything. Docker Sandbox runs the coding-agent CLI inside a throwaway container with only that one workdir bind-mounted in, all Linux capabilities dropped, and memory/CPU/PID limits enforced, so that blast radius is actually contained. To be precise about scope: this does not sandbox network egress — the agent still needs outbound access to its own LLM provider's API — and it's not zero-config the way PTY mode is: it requires Docker installed and a real image built ahead of time. Falls back cleanly to PTY or plain-subprocess execution if Docker isn't reachable or no image is configured.</p>
+            </div>
+          </article>
+
+          <article class="df-feature-card">
             <div class="df-feature-visual df-feature-visual--warm">
               <div class="df-feature-inner">
                 <ul class="feat-int-list">
@@ -388,7 +405,7 @@
           <article class="trust-card">
             <p class="trust-label">3 · Build</p>
             <h3>Your agent writes code</h3>
-            <p>Claude Code, Codex, OpenCode, Cursor Agent, or Aider — bring your own CLI. Optionally runs inside a real PTY (<code>pty.fork()</code>) instead of a plain pipe, so a CLI that special-cases "no terminal attached" behaves the way it would for a human — falls back to the standard subprocess path automatically wherever it can't.</p>
+            <p>Claude Code, Codex, OpenCode, Cursor Agent, or Aider — bring your own CLI. Optionally runs inside a real PTY (<code>pty.fork()</code>) instead of a plain pipe, or sandboxed inside a throwaway Docker container with only the workdir mounted in — falls back to the standard subprocess path automatically wherever either can't run.</p>
           </article>
           <article class="trust-card">
             <p class="trust-label">4 · Live Watch</p>
@@ -506,6 +523,7 @@ sonic doctor</pre>
           <span class="differentiator-pill">Signed Turn Receipts</span>
           <span class="differentiator-pill">Risk-Aware Model Escalation</span>
           <span class="differentiator-pill">PTY-Native Execution</span>
+          <span class="differentiator-pill">Docker Sandbox</span>
           <span class="differentiator-pill">Live Syntax Watch</span>
           <span class="differentiator-pill">Self-Evolving Rules Engine</span>
           <span class="differentiator-pill">Multi-Repository State Anchoring</span>
@@ -550,6 +568,10 @@ sonic doctor</pre>
           <details class="faq-item">
             <summary>Does PTY-native execution actually intercept file writes before they hit disk?</summary>
             <p>No, and Supersonic doesn't claim it does. A pseudo-terminal (PTY) governs a child process's stdin/stdout stream — that's it. It cannot see, let alone intercept, a filesystem write syscall; that's a fundamentally different, much heavier mechanism (ptrace/seccomp syscall interception, or a FUSE overlay filesystem), and this feature doesn't implement either. What PTY-native execution actually does: run the coding-agent CLI inside a real <code>pty.fork()</code>ed terminal instead of a plain subprocess pipe, so a CLI that behaves differently when it detects it isn't attached to a terminal (many disable colors, progress bars, or interactive confirmations the instant stdout is a pipe) runs the same way it would for a human typing the command directly. It's off by default, POSIX-only, and falls back to the standard subprocess path automatically on any platform or CLI it can't run cleanly on.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Does Docker Sandbox stop a coding agent from reaching the internet?</summary>
+            <p>No — and that's deliberate, not an oversight. The coding agent still needs outbound network access to reach its own LLM provider's API (Anthropic, OpenAI, whichever it's configured for); sandboxing that away would break the agent's basic function, not just contain its blast radius. What Docker Sandbox actually contains is the filesystem: the container only has the project's own workdir bind-mounted in, runs with all Linux capabilities dropped, and is memory/CPU/PID-capped, so a runaway or hallucinating shell command can trash the container's own throwaway filesystem but can't reach anything else on the host. It also isn't zero-config the way PTY mode is — it requires Docker installed and a real image built or pulled ahead of time (a reference Dockerfile covering Claude Code, Codex, and Aider ships in the repo). No Docker install, no configured image, or an unreachable daemon all fall back cleanly to PTY or plain-subprocess execution — a missing optional dependency never fails a build turn.</p>
           </details>
           <details class="faq-item">
             <summary>What is Live Syntax Watch, and how is it different from PTY execution?</summary>

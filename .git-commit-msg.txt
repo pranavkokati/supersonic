@@ -1,0 +1,67 @@
+agents: build Docker Sandbox; verify: fix Live Syntax Watch missing single-edit files
+
+Docker Sandbox (dle_docker_sandbox, off by default):
+
+Checkpoint/rollback protects a project's own git-tracked workdir with a
+hard reset. It protects nothing else. A coding-agent CLI has a real shell
+and can run anything the host OS user can reach -- another project's
+folder, credentials in the home directory, /etc/hosts, whatever. This adds
+a third execution mode (agents/sandbox_runner.py), tried before PTY in
+CodingAgentRunner.run(): runs the agent inside a throwaway Docker
+container with only the project's workdir bind-mounted in, all Linux
+capabilities dropped, no-new-privileges set, and memory/CPU/pids capped.
+A unique --name is generated per run so a timed-out turn can be
+force-stopped via `docker kill` -- killing the local `docker run` client
+process alone does not reliably stop the daemon-side container, since
+SIGKILL sent to the client isn't proxied to it the way SIGTERM/SIGINT
+would be.
+
+Explicitly scoped, not oversold: this does NOT sandbox network egress
+(the agent still needs outbound access to its own LLM provider's API),
+and it is NOT zero-config like PTY mode -- it requires Docker installed
+and a real image built or pulled ahead of time (docker_sandbox_image).
+docker/sandbox.Dockerfile ships a reference image with Claude Code,
+Codex, and Aider preinstalled -- the three coding agents whose install
+commands are confirmed with real confidence here; OpenCode and Cursor
+Agent are deliberately left out rather than guessing their install
+commands into a file nobody here could build-test. Falls back cleanly to
+PTY or plain-subprocess execution if Docker isn't installed, the daemon
+is unreachable, or no image is configured -- never fails a turn over an
+optional dependency.
+
+Testing honesty note: no Docker daemon was reachable in the environment
+this was written in, so the actual container-execution path was NOT
+end-to-end exercised. What tests/test_sandbox_runner.py (19 tests) does
+cover with full confidence: availability detection, exact `docker run`
+argv construction (mount scope, cap-drop, resource limits, unique name),
+the timeout -> docker kill cleanup path, and the three-tier fallback
+wiring (Docker -> PTY -> plain subprocess) -- all via mocked subprocess
+calls. `sonic doctor` now reports whether Docker Sandbox can actually run.
+
+Live Syntax Watch bug fix (verify/live_syntax_watch.py):
+
+Found while auditing the codebase for further issues after the rollback
+fix earlier this session. The watcher's "only flag a file once we've
+observed it change" rule used one first-sighting check for two different
+cases it needs to tell apart: a file that already existed when the
+watcher started (correctly exempt on first sighting -- that's the
+mechanism protecting a pre-existing, already-committed broken file from
+being misreported) and a file that did NOT exist yet and gets created
+fresh during the turn (which has no legitimate "pre-existing" state to
+protect, and should be checked on that very first write). The old code
+skipped both cases identically, so a file written exactly once during a
+turn -- the ordinary case for a coding agent creating or editing a file
+-- was silently never parsed at all. Confirmed by direct repro before the
+fix (single write: zero findings; second write to the same file: caught)
+and after (single write now caught; pre-existing-and-untouched still
+correctly exempt).
+
+Fix: capture a synchronous baseline scan of every file present at watcher
+start (_prime(), before the polling thread starts, to avoid racing the
+agent's first write), and treat any path with no baseline entry as new --
+parse it immediately rather than silently recording it as a baseline.
+tests/test_live_syntax_watch.py gains two regression tests for the new-
+file cases; all five pre-existing tests still pass unchanged, since the
+pre-existing-file half of the contract was already correct.
+
+326 tests pass, ruff clean.

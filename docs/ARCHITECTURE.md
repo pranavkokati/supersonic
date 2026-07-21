@@ -73,6 +73,7 @@ agent produced it). It's gone; one agent per project, no bandit tuning.
 | `providers/` | `anthropic_provider.py`, `openai_provider.py`, `ollama_provider.py`, auto-detected in `__init__.py` |
 | `agents/runner.py` | Spawn Claude Code / Codex / OpenCode / Cursor / Aider CLIs |
 | `agents/pty_runner.py` | Optional PTY-native execution (`pty.fork()`) — a real terminal, not filesystem-write interception |
+| `agents/sandbox_runner.py` | Optional Docker-sandboxed execution — contains filesystem blast radius to a throwaway container + the mounted workdir; does not sandbox network egress |
 | `integrations/git_ops.py`, `integrations/github.py` | Native git + `gh` CLI shipping — no middleman |
 | `integrations/linear.py`, `integrations/notify.py` | Optional, off unless configured |
 | `research/tavily.py` | Optional enrichment, never required |
@@ -138,7 +139,7 @@ Shared design tokens: `style.css` + `sonic.css`.
 
 - `serve` — start local UI
 - `run` — one-shot headless loop
-- `doctor` — validate provider keys, agent CLIs, `git`/`gh` on PATH
+- `doctor` — validate provider keys, agent CLIs, `git`/`gh` on PATH, and Docker Sandbox reachability
 - `projects` / `portfolio` — list local builds
 - `queue-add` / `queue-run` / `schedule` — overnight portfolio queue
 - `verify-receipts` — cryptographically verify every Signed Turn Receipt in a project, offline

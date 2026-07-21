@@ -152,6 +152,33 @@ class CodingAgentRunner:
             on_line(f"$ {' '.join(cmd)}")
         mapper = _cursor_stream_line if self.kind == "cursor" else None
 
+        # Docker Sandbox (dle_docker_sandbox): runs the agent inside a
+        # throwaway container instead of directly on the host, so a rogue
+        # shell command's blast radius is contained to the container (plus
+        # the one mounted workdir volume) rather than the whole host. Tried
+        # first — it's the strongest isolation boundary of the three modes
+        # — but just as best-effort as PTY: no configured image, no Docker
+        # binary, or an unreachable daemon all fall straight through to the
+        # next mode rather than failing the turn. See agents/sandbox_runner.py
+        # for exactly what this does and doesn't sandbox (no network
+        # isolation — the agent still needs LLM API egress).
+        if getattr(self.secrets, "dle_docker_sandbox", False):
+            from supersonic.agents.sandbox_runner import DockerUnavailableError, run_in_docker
+
+            try:
+                return run_in_docker(
+                    cmd, workdir, env,
+                    image=getattr(self.secrets, "docker_sandbox_image", ""),
+                    on_line=on_line, line_mapper=mapper, timeout=1800,
+                    memory_limit=getattr(self.secrets, "docker_memory_limit", "2g"),
+                    cpu_limit=getattr(self.secrets, "docker_cpu_limit", "2"),
+                    pids_limit=getattr(self.secrets, "docker_pids_limit", 256),
+                )
+            except DockerUnavailableError:
+                pass  # fall through to PTY / plain-subprocess below
+            except Exception:
+                logger.exception("Docker sandbox execution failed unexpectedly, falling back")
+
         # PTY-native execution (dle_pty_supervision): the child gets a real
         # terminal instead of a plain pipe. POSIX only, and best-effort —
         # any failure to even start in PTY mode falls straight back to the

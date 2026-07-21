@@ -185,6 +185,23 @@ class UserSecrets(BaseModel):
     # by default; a no-op until a failure category actually repeats.
     dle_rules_evolution: bool = True
     rules_evolution_min_repeats: int = Field(default=2, ge=2, le=10)
+    # Docker Sandbox: runs the coding-agent CLI inside a throwaway Docker
+    # container (only this project's workdir bind-mounted in, capabilities
+    # dropped, memory/CPU/pids capped, --rm) instead of directly on the
+    # host, so checkpoint/rollback's git-scoped protection is backed by a
+    # real filesystem boundary for anything outside the workdir. Does NOT
+    # sandbox network egress — the agent still needs outbound access to
+    # its own LLM provider's API (see agents/sandbox_runner.py's module
+    # docstring for the full honest scope). Off by default: it requires a
+    # real Docker install AND a pre-built/pulled image (docker_sandbox_image
+    # below) — not zero-config the way dle_pty_supervision is — and falls
+    # back cleanly to PTY/plain-subprocess execution if Docker isn't
+    # reachable or no image is configured.
+    dle_docker_sandbox: bool = False
+    docker_sandbox_image: str = ""  # e.g. "supersonic-sandbox:latest" — see docker/sandbox.Dockerfile
+    docker_memory_limit: str = "2g"
+    docker_cpu_limit: str = "2"
+    docker_pids_limit: int = Field(default=256, ge=16, le=4096)
 
     model_config = ConfigDict(extra="ignore")
 

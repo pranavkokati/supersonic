@@ -70,16 +70,38 @@ class LiveSyntaxWatcher:
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._findings: List[LiveSyntaxFinding] = []
-        # None on first sighting of a path this run — we only flag a file
-        # once we've observed it change AT LEAST once while watching, so a
-        # pre-existing (already-broken, already-committed) file never gets
-        # misreported as something the agent "just" wrote.
+        # Baseline mtimes for files that already existed the instant this
+        # watcher started — captured synchronously in __enter__, BEFORE the
+        # polling thread starts, so a pre-existing (already-broken,
+        # already-committed) file is never flagged just for being present,
+        # only if it's edited (mtime changes) after that baseline. A path
+        # with no entry here was NOT present at start time, so its first
+        # sighting in _scan_once() means the agent created it fresh during
+        # this turn — that first sighting IS the thing to check, not a
+        # baseline to silently establish (see _scan_once for why this
+        # distinction matters: a file touched exactly once per turn, the
+        # common case, was previously never checked at all).
         self._seen_mtimes: Dict[Path, float] = {}
 
     def __enter__(self) -> "LiveSyntaxWatcher":
+        self._prime()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
         return self
+
+    def _prime(self) -> None:
+        """Synchronous baseline scan of files that exist right now, run
+        before the background thread starts so there's no race between
+        "the agent's first write" and "the watcher's first poll" — without
+        this, a fast first edit could be mistaken for a pre-existing file's
+        baseline and never get parsed at all."""
+        for path in self.workdir.rglob("*.py"):
+            if _is_ignored(path.relative_to(self.workdir)):
+                continue
+            try:
+                self._seen_mtimes[path] = path.stat().st_mtime
+            except OSError:
+                continue
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self._stop.set()
@@ -106,10 +128,14 @@ class LiveSyntaxWatcher:
                 mtime = path.stat().st_mtime
             except OSError:
                 continue
+            is_new_file = path not in self._seen_mtimes
             prev = self._seen_mtimes.get(path)
             self._seen_mtimes[path] = mtime
-            if prev is None or prev == mtime:
-                continue  # first sighting, or unchanged since last scan
+            if not is_new_file and prev == mtime:
+                continue  # existed at baseline and unchanged since last scan
+            # Either this file didn't exist at watcher-start (the agent just
+            # created it — check it now, not on some hypothetical second
+            # write) or it did exist and its mtime just changed (edited).
             try:
                 source = path.read_text(encoding="utf-8", errors="replace")
                 ast.parse(source)

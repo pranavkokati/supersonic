@@ -112,6 +112,18 @@ around three specific answers to those problems:
   filesystem, neither of which this implements). Falls back to the standard subprocess path automatically on
   any platform or CLI it can't run cleanly on. See `supersonic/agents/pty_runner.py`.
 
+- **Docker Sandbox.** An optional (off by default, requires a configured image) execution mode that runs the
+  coding-agent CLI inside a throwaway Docker container instead of directly on the host — only the project's
+  workdir is bind-mounted in, capabilities are dropped, and memory/CPU/PID limits are enforced, so a rogue or
+  hallucinating shell command's blast radius is contained to the container plus that one volume rather than
+  the whole host machine (checkpoint/rollback already protects the workdir itself via git; this is what
+  protects everything else the host OS user can reach). To be precise about scope: this does **not** sandbox
+  network egress — the agent still needs outbound access to its own LLM provider's API — and it is **not**
+  zero-config, unlike PTY mode: it requires Docker installed and a real image built or pulled ahead of time
+  (`docker_sandbox_image` in Settings; see `docker/sandbox.Dockerfile` for a reference image covering Claude
+  Code, Codex, and Aider). Falls back cleanly to PTY or plain-subprocess execution if Docker isn't installed,
+  the daemon isn't reachable, or no image is configured. See `supersonic/agents/sandbox_runner.py`.
+
 - **Live Syntax Watch.** A concurrent background thread — mtime polling plus `ast.parse`, no kernel hooks —
   that re-checks every touched Python file within a fraction of a second of it being saved, *while the agent
   is still writing files*, not just at the end of the turn like Syntax Shield's diff-based check (which still
@@ -169,8 +181,8 @@ sonic run --demo                                                 # no live provi
 sonic doctor
 ```
 
-Checks which LLM provider is configured, which coding-agent CLIs are on `PATH`, and whether `git`/`gh` are
-available for shipping.
+Checks which LLM provider is configured, which coding-agent CLIs are on `PATH`, whether `git`/`gh` are
+available for shipping, and whether Docker Sandbox can actually run (daemon reachable, image configured).
 
 ```bash
 sonic verify-receipts <path-to-project>
@@ -192,7 +204,7 @@ offline, from any checkout. See "Black Box Replay" above.
 |---|---|
 | Plan | One provider-agnostic call grounds the idea and writes a build plan + product name |
 | Checkpoint | Git-native commit + tag of the current verified state (and every linked repo, if Multi-Repository State Anchoring is configured) |
-| Build | Claude Code, Codex, OpenCode, Cursor Agent, or Aider — bring your own coding-agent CLI, optionally run inside a real PTY |
+| Build | Claude Code, Codex, OpenCode, Cursor Agent, or Aider — bring your own coding-agent CLI, optionally run inside a real PTY or a sandboxed Docker container |
 | Live Watch | Concurrent filesystem watcher flags a broken Python file within a fraction of a second of it being saved, mid-turn |
 | Dependency Trust | Newly-added packages checked against the real PyPI/npm registry — nonexistent fails the turn outright |
 | Secret Leak | Added diff lines scanned for the structural shape of a real credential — a match fails the turn outright |
@@ -223,11 +235,13 @@ supersonic/          Python package
   loop/               Checkpoint / Rollback / Planner / Orchestrator; multi_repo.py — Multi-Repository State
                       Anchoring; replay.py — Black Box Replay
   verify/             Tests, lint, critic, thrash, dependency trust, secret leak, test quality, receipts, live syntax watch, combined gate
-  agents/             Coding-agent CLI runner; pty_runner.py — optional PTY-native execution
+  agents/             Coding-agent CLI runner; pty_runner.py — optional PTY-native execution;
+                      sandbox_runner.py — optional Docker-sandboxed execution
   integrations/       Native git + gh CLI shipping, optional Linear, optional webhook notify
   research/           Optional Tavily enrichment — never required
 app/                  Local onboarding + dashboard (FastAPI + vanilla JS, SSE live view)
 web/                  Marketing site
+docker/               sandbox.Dockerfile — reference image for Docker Sandbox
 tests/                Pytest suite
 docs/                 Architecture, demo walkthrough, FAQ
 ```
