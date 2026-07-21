@@ -158,11 +158,16 @@
                 <div id="pane-dle" class="sn-mpane hidden" role="tabpanel">
                   <!--
                     Deterministic Loop Engine (DLE) pipeline — replaces the deleted Agent Racing panel.
-                    Each turn runs 8 stages before/around the agent write: Factor → Patch → Shield →
-                    Telemetry → Deptrust → Secrets → Quality → Ship. Stage nodes below are driven by `dle_stage` events on the run's
-                    SSE stream (see the event-shape comment above `updateDleStage` in dashboard.js);
-                    the "ship" node also lights up from the existing `checkpoint` event so it works
-                    even before the backend emits a dedicated ship-stage event.
+                    Each turn runs 9 stages before/around the agent write: Factor → Patch → Live Watch →
+                    Shield → Telemetry → Deptrust → Secrets → Quality → Ship. "Live Watch" is a
+                    concurrent filesystem watcher that re-parses a touched .py file within a fraction
+                    of a second of it being saved WHILE the agent is still running (see
+                    supersonic/verify/live_syntax_watch.py) — observability only, it surfaces a
+                    broken file early, it does not interrupt the agent process. Stage nodes below are
+                    driven by `dle_stage` events on the run's SSE stream (see the event-shape comment
+                    above `updateDleStage` in dashboard.js); the "ship" node also lights up from the
+                    existing `checkpoint` event so it works even before the backend emits a dedicated
+                    ship-stage event.
                   -->
                   <div id="dle-panel" class="sn-dle-panel">
                     <div id="dle-track" class="sn-dle-track">
@@ -173,6 +178,11 @@
                       <span class="sn-dle-arrow">→</span>
                       <div class="sn-dle-stage" data-stage="patch">
                         <div class="sn-dle-stage-head"><span class="sn-dle-stage-dot"></span><span class="sn-dle-stage-label">Patch</span></div>
+                        <p class="sn-dle-stage-detail">—</p>
+                      </div>
+                      <span class="sn-dle-arrow">→</span>
+                      <div class="sn-dle-stage" data-stage="livewatch">
+                        <div class="sn-dle-stage-head"><span class="sn-dle-stage-dot"></span><span class="sn-dle-stage-label">Live Watch</span></div>
                         <p class="sn-dle-stage-detail">—</p>
                       </div>
                       <span class="sn-dle-arrow">→</span>
@@ -206,7 +216,7 @@
                         <p class="sn-dle-stage-detail">—</p>
                       </div>
                     </div>
-                    <pre id="dle-log" class="sn-agent-log sn-pane-placeholder">Deterministic Loop Engine stage detail streams here each turn — static factoring, patch-diff streaming, syntax shield, telemetry gate, dependency trust, secret leak gate, test quality (mutation testing), and ship.</pre>
+                    <pre id="dle-log" class="sn-agent-log sn-pane-placeholder">Deterministic Loop Engine stage detail streams here each turn — static factoring, patch-diff streaming, live syntax watch, syntax shield, telemetry gate, dependency trust, secret leak gate, test quality (mutation testing), and ship.</pre>
                   </div>
                 </div>
                 <div id="pane-review" class="sn-mpane hidden" role="tabpanel">
@@ -372,7 +382,7 @@
     </main>
   </div>
 
-  <script src="/assets/js/dashboard.js?v=4"></script>
+  <script src="/assets/js/dashboard.js?v=5"></script>
   <script src="/assets/js/dashboard-shell.js?v=1"></script>
 </body>
 </html>

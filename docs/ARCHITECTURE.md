@@ -66,10 +66,12 @@ agent produced it). It's gone; one agent per project, no bandit tuning.
 | `loop/checkpoint.py` | Git-native commit + tag of verified state |
 | `loop/rollback.py` | Hard git reset to the last verified checkpoint |
 | `loop/planner.py` | Provider-agnostic plan / brand / next-turn routing |
-| `memory/` | Continuity Graph — `schema.py` (entries), `ledger.py` (append-only store), `graph.py` (retrieval), `distill.py` (compaction) |
-| `verify/` | `qa.py` (tests/lint), `critic.py` (goal satisfaction), `thrash.py` (oscillation detector), `gate.py` (combined decision) |
+| `loop/multi_repo.py` | Multi-Repository State Anchoring — coordinates checkpoint/rollback across linked repo working directories |
+| `memory/` | Continuity Graph — `schema.py` (entries), `ledger.py` (append-only store), `graph.py` (retrieval), `distill.py` (compaction), `rules_engine.py` (Self-Evolving Rules Engine) |
+| `verify/` | `qa.py` (tests/lint), `critic.py` (goal satisfaction), `thrash.py` (oscillation detector), `live_syntax_watch.py` (concurrent mid-turn syntax watcher), `gate.py` (combined decision) |
 | `providers/` | `anthropic_provider.py`, `openai_provider.py`, `ollama_provider.py`, auto-detected in `__init__.py` |
 | `agents/runner.py` | Spawn Claude Code / Codex / OpenCode / Cursor / Aider CLIs |
+| `agents/pty_runner.py` | Optional PTY-native execution (`pty.fork()`) — a real terminal, not filesystem-write interception |
 | `integrations/git_ops.py`, `integrations/github.py` | Native git + `gh` CLI shipping — no middleman |
 | `integrations/linear.py`, `integrations/notify.py` | Optional, off unless configured |
 | `research/tavily.py` | Optional enrichment, never required |
@@ -110,6 +112,8 @@ are also queryable directly: `GET /api/projects/{id}/ledger`, `GET /api/projects
 | `~/.supersonic/projects/<id>/` | Default project workdirs |
 | `<workdir>/.continuity/ledger.jsonl` | The Continuity Graph — append-only, git-committed with the project |
 | `<workdir>/.continuity/BRAIN.md` | Human/agent-readable snapshot of the ledger, regenerated each turn |
+| `<workdir>/.supersonic/rules.json` + `rules.md` | Self-Evolving Rules Engine — one durable rule per repeated Verify failure category |
+| `<workdir>/.supersonic/linked_repos.json` | Multi-Repository State Anchoring — the other repo paths registered alongside this project |
 | `<custom>/` | User-chosen folder (never auto-deleted) |
 
 ---

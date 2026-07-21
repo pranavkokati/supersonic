@@ -7,6 +7,7 @@ Any of these can be the default backend for a project.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -16,6 +17,8 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from supersonic.config import AgentKind, UserSecrets
+
+logger = logging.getLogger(__name__)
 
 LineCallback = Callable[[str], None]
 
@@ -148,6 +151,23 @@ class CodingAgentRunner:
         if on_line:
             on_line(f"$ {' '.join(cmd)}")
         mapper = _cursor_stream_line if self.kind == "cursor" else None
+
+        # PTY-native execution (dle_pty_supervision): the child gets a real
+        # terminal instead of a plain pipe. POSIX only, and best-effort —
+        # any failure to even start in PTY mode falls straight back to the
+        # plain-subprocess path rather than failing the turn over it. See
+        # agents/pty_runner.py for exactly what this does and doesn't do.
+        if getattr(self.secrets, "dle_pty_supervision", False):
+            from supersonic.agents.pty_runner import PTY_AVAILABLE, PTYUnavailableError, run_in_pty
+
+            if PTY_AVAILABLE:
+                try:
+                    return run_in_pty(cmd, workdir, env, on_line=on_line, line_mapper=mapper, timeout=1800)
+                except PTYUnavailableError:
+                    pass  # fall through to the plain-subprocess path below
+                except Exception:
+                    logger.exception("PTY execution failed unexpectedly, falling back to plain subprocess")
+
         return _run_streaming(cmd, workdir, env, on_line=on_line, line_mapper=mapper, timeout=1800)
 
     def _env(self) -> Dict[str, str]:

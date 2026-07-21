@@ -69,6 +69,10 @@ class SecretsUpdate(BaseModel):
     escalation_model_opencode: Optional[str] = None
     escalation_model_cursor: Optional[str] = None
     escalation_model_aider: Optional[str] = None
+    dle_pty_supervision: Optional[bool] = None
+    dle_live_syntax_watch: Optional[bool] = None
+    dle_rules_evolution: Optional[bool] = None
+    rules_evolution_min_repeats: Optional[int] = None
 
 
 class ProjectCreate(BaseModel):

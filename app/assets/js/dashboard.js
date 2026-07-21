@@ -204,6 +204,27 @@
       case "distilled":
         playByPlay(`Continuity Graph distilled at turn ${evt.turn}`);
         break;
+      // Self-Evolving Rules Engine (memory/rules_engine.py): fires at most once per failure
+      // category, only after that exact category has repeated across turns — see
+      // rules_evolution_min_repeats in Settings. No dedicated panel yet; a play-by-play line
+      // is proportional to how rarely this fires (most projects will see zero or one of these
+      // across a whole build).
+      case "rule_learned":
+        playByPlay(`Learned a rule after ${evt.repeats_observed}x ${evt.category} failures: ${evt.rule}`);
+        break;
+      // Multi-Repository State Anchoring (loop/multi_repo.py): only ever fires for a project
+      // with linked repos registered in .supersonic/linked_repos.json — most projects will
+      // never see these three events. "anchored" fires once at setup; "checkpoint" fires
+      // alongside every shipped turn; "rollback" fires alongside every rolled-back turn.
+      case "multi_repo_anchored":
+        playByPlay(`Multi-repo anchoring active — tracking ${evt.repos.length} linked repo(s) alongside this one.`);
+        break;
+      case "multi_repo_checkpoint":
+        playByPlay(`Turn ${evt.turn}: checkpointed ${evt.repos.length} linked repo(s) in lockstep.`);
+        break;
+      case "multi_repo_rollback":
+        playByPlay(`Turn ${evt.turn}: rolled back ${evt.repos.length} linked repo(s) to stay in sync.`);
+        break;
       case "complete":
         setStatus(evt.status === "completed" ? "done" : "failed");
         document.querySelector("#run-progress-fill").style.width = "100%";
@@ -258,25 +279,34 @@
    * The DLE replaces the deleted Agent Racing feature with an 8-stage per-turn pipeline:
    *   1. factor      — Static Factoring: maps relevant files before the agent starts writing
    *   2. patch       — Patch-Diff Streaming: agent emits unified diffs instead of full-file rewrites
-   *   3. shield      — Syntax Shield: fast local AST check before the expensive verify gate
-   *   4. telemetry   — Telemetry Gate: optional local Playwright check (console errors, layout
+   *   3. livewatch   — Live Syntax Watch: a concurrent filesystem watcher (no kernel hooks,
+   *                    just mtime polling + ast.parse on a background thread) that re-checks a
+   *                    touched .py file within a fraction of a second of it being saved, WHILE
+   *                    the agent is still running — not after the turn ends like Shield below.
+   *                    Observability only: it surfaces a broken file early, it does not pause
+   *                    or interrupt the agent process itself (see
+   *                    supersonic/verify/live_syntax_watch.py for exactly what it does and
+   *                    doesn't do). "skipped" means the toggle is off; "pass" means no syntax
+   *                    errors were seen while the agent was writing files this turn.
+   *   4. shield      — Syntax Shield: fast local AST check before the expensive verify gate
+   *   5. telemetry   — Telemetry Gate: optional local Playwright check (console errors, layout
    *                    sanity, perf-regression budget); only runs if a frontend dev server is
    *                    detected, otherwise reports status "skipped"
-   *   5. deptrust    — Dependency Trust Gate: newly-added packages in this turn's diff are
+   *   6. deptrust    — Dependency Trust Gate: newly-added packages in this turn's diff are
    *                    checked against the real PyPI/npm registry; a nonexistent package fails
    *                    the turn outright (see supersonic/verify/dependency_trust.py)
-   *   6. secretleak  — Secret Leak Gate: this turn's added diff lines are scanned for the
+   *   7. secretleak  — Secret Leak Gate: this turn's added diff lines are scanned for the
    *                    structural shape of a real credential (AWS key, PEM block, GitHub/
    *                    Slack/Stripe/Anthropic/OpenAI/Google token, a new .env file); a
    *                    high-confidence match fails the turn outright, same severity as an
    *                    unresolved syntax error (see supersonic/verify/secret_leak.py)
-   *   7. testquality — Test Quality Gate: once the real tests pass, a small bounded set of
+   *   8. testquality — Test Quality Gate: once the real tests pass, a small bounded set of
    *                    AST-level mutants (comparison/boolean/constant flips) scoped to this
    *                    turn's touched functions are re-tested against the same suite; a
    *                    surviving mutant means the tests pass without actually verifying that
    *                    logic. Soft signal (fair vote, not a hard fail) — see
    *                    supersonic/verify/test_quality.py
-   *   8. ship        — the existing Checkpoint/Rollback step (untouched); driven here from the
+   *   9. ship        — the existing Checkpoint/Rollback step (untouched); driven here from the
    *                    existing "checkpoint" event, not a dedicated dle_stage event, unless the
    *                    backend chooses to emit one for "ship" too (harmless either way — the
    *                    last write for a given stage/turn wins).
@@ -284,7 +314,8 @@
    * Expected event shape on the run's SSE stream:
    *   {
    *     "type": "dle_stage",
-   *     "stage": "factor" | "patch" | "shield" | "telemetry" | "deptrust" | "secretleak" | "testquality" | "ship",
+   *     "stage": "factor" | "patch" | "livewatch" | "shield" | "telemetry" | "deptrust" |
+   *               "secretleak" | "testquality" | "ship",
    *     "status": "pending" | "running" | "pass" | "fail" | "skipped",
    *     "detail": "short human-readable line, e.g. 'Static factoring: 3 files selected of 142'"
    *   }
@@ -297,7 +328,7 @@
    * unrecognized/future stage name from the backend degrades silently instead of breaking
    * the run view.
    */
-  const DLE_STAGES = ["factor", "patch", "shield", "telemetry", "deptrust", "secretleak", "testquality", "ship"];
+  const DLE_STAGES = ["factor", "patch", "livewatch", "shield", "telemetry", "deptrust", "secretleak", "testquality", "ship"];
 
   function resetDleTrack({ keepShip = false } = {}) {
     DLE_STAGES.forEach((stage) => {

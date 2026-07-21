@@ -75,6 +75,7 @@
               <span>Plan</span><span class="arrow">→</span>
               <span>Checkpoint</span><span class="arrow">→</span>
               <span>Agent</span><span class="arrow">→</span>
+              <span>Live Watch</span><span class="arrow">→</span>
               <span>Dependency Trust</span><span class="arrow">→</span>
               <span>Secret Leak</span><span class="arrow">→</span>
               <span>Test Quality</span><span class="arrow">→</span>
@@ -277,6 +278,74 @@
               <p>Structured decisions, invariants, and failures, retrieved by relevance to the current turn — not a flat context blob trimmed down to fit a budget.</p>
             </div>
           </article>
+
+          <article class="df-feature-card">
+            <div class="df-feature-visual df-feature-visual--blue">
+              <div class="df-feature-inner">
+                <ul class="feat-int-list">
+                  <li><strong>isatty()</strong><span class="feat-int-ok">true</span></li>
+                  <li><strong>stdout</strong><span class="feat-int-ok">byte-for-byte</span></li>
+                  <li><strong>SIGKILL on timeout</strong><span class="feat-int-ok">clean</span></li>
+                </ul>
+                <p class="feat-stat">real pty.fork()<span>not a claim about intercepting file writes — see the honesty note below</span></p>
+              </div>
+            </div>
+            <div class="df-feature-copy">
+              <h3>PTY-native execution: your coding agent gets a real terminal.</h3>
+              <p>An optional execution mode that runs the coding-agent CLI inside a genuine pseudo-terminal (POSIX <code>pty.fork()</code>) instead of a plain subprocess pipe — so a CLI that special-cases "not attached to a terminal" (disabling colors, progress bars, interactive confirmations) behaves the same way it would if a human had typed the command. Falls back to the standard subprocess path automatically on any platform or CLI it can't run cleanly on. To be precise about what a PTY actually is: it governs a process's stdin/stdout, not its filesystem writes — Supersonic doesn't claim otherwise, and doesn't pretend to intercept a file write before it hits disk. That's a different, much heavier mechanism (ptrace/seccomp, or a FUSE filesystem) that this feature is not.</p>
+            </div>
+          </article>
+
+          <article class="df-feature-card">
+            <div class="df-feature-visual df-feature-visual--warm">
+              <div class="df-feature-inner">
+                <ul class="feat-int-list">
+                  <li><strong>invoice.py</strong><span class="feat-int-bad">broken at 0.3s</span></li>
+                  <li><strong>parser detected</strong><span class="feat-int-warn">mid-turn</span></li>
+                  <li><strong>Syntax Shield</strong><span class="feat-int-ok">confirms after</span></li>
+                </ul>
+                <p class="feat-stat">~250ms<span>from a broken save to a flagged finding, while the agent is still writing</span></p>
+              </div>
+            </div>
+            <div class="df-feature-copy">
+              <h3>Live Syntax Watch: sees a broken file before the turn ends.</h3>
+              <p>A concurrent background thread — mtime polling plus <code>ast.parse</code>, no kernel hooks — that re-checks every touched Python file within a fraction of a second of it being saved, while the agent is still mid-turn. Syntax Shield's diff-based check still runs as the authoritative gate after the turn completes; this is faster feedback in front of it, not a replacement. Observability only in this version — it surfaces the exact file and line early, it does not pause or interrupt the agent process itself.</p>
+            </div>
+          </article>
+
+          <article class="df-feature-card">
+            <div class="df-feature-visual df-feature-visual--pear">
+              <div class="df-feature-inner">
+                <ul class="feat-int-list">
+                  <li><strong>lint failure</strong><span class="feat-int-bad">3rd repeat</span></li>
+                  <li><strong>rule synthesized</strong><span class="feat-int-warn">1 concise line</span></li>
+                  <li><strong>rules.md</strong><span class="feat-int-ok">folded into every prompt</span></li>
+                </ul>
+                <p class="feat-stat">1 rule per category<span>never rewritten, never mutated — appended once and kept</span></p>
+              </div>
+            </div>
+            <div class="df-feature-copy">
+              <h3>Self-Evolving Rules Engine: the same mistake, once.</h3>
+              <p>When the exact same Verify failure category repeats across turns, a supervisor-critic LLM call synthesizes one concise, durable rule from the specific failure trace and appends it to the project's own <code>.supersonic/rules.md</code> — folded into every subsequent turn's prompt. Best-effort, it also mirrors into <code>.cursorrules</code> or <code>CLAUDE.md</code> if the project already has one, updating only its own clearly marked section and leaving everything else untouched — never creating one of those files from scratch. This is a narrower mechanism than genetic-algorithm prompt mutation: one durable rule per repeated failure, not a population of candidate prompts scored against a fitness function.</p>
+            </div>
+          </article>
+
+          <article class="df-feature-card">
+            <div class="df-feature-visual df-feature-visual--blue">
+              <div class="df-feature-inner">
+                <ul class="feat-int-list">
+                  <li><strong>frontend/</strong><span class="feat-int-ok">anchored</span></li>
+                  <li><strong>backend/</strong><span class="feat-int-ok">anchored</span></li>
+                  <li><strong>schema/</strong><span class="feat-int-ok">anchored</span></li>
+                </ul>
+                <p class="feat-stat">1 primary Verify gate<span>governs the checkpoint/rollback of every linked repo, together</span></p>
+              </div>
+            </div>
+            <div class="df-feature-copy">
+              <h3>Multi-Repository State Anchoring: one feature, many repos, one rollback.</h3>
+              <p>Register the other repos a feature ticket actually spans — a frontend, a backend, a schema-definitions repo — and every turn snapshots all of them alongside the primary repo. When the primary repo's turn ships, every linked repo's checkpoint refreshes to match; when it fails Verify and rolls back, every linked repo rolls back with it. The coding agent still runs exactly once per turn, against the primary workdir only — what's coordinated here is checkpoint and rollback, so nothing in the linked set can silently drift out of sync with what the primary repo's Verify gate actually approved.</p>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -302,40 +371,45 @@
           <article class="trust-card">
             <p class="trust-label">3 · Build</p>
             <h3>Your agent writes code</h3>
-            <p>Claude Code, Codex, OpenCode, Cursor Agent, or Aider — bring your own CLI.</p>
+            <p>Claude Code, Codex, OpenCode, Cursor Agent, or Aider — bring your own CLI. Optionally runs inside a real PTY (<code>pty.fork()</code>) instead of a plain pipe, so a CLI that special-cases "no terminal attached" behaves the way it would for a human — falls back to the standard subprocess path automatically wherever it can't.</p>
           </article>
           <article class="trust-card">
-            <p class="trust-label">4 · Dependency Trust</p>
+            <p class="trust-label">4 · Live Watch</p>
+            <h3>Catches a broken file while the agent is still writing</h3>
+            <p>A concurrent thread re-parses each touched .py file within a fraction of a second of it being saved, mid-turn — not after the whole turn ends. Observability only: it surfaces the exact file and line early, it does not interrupt the agent process.</p>
+          </article>
+          <article class="trust-card">
+            <p class="trust-label">5 · Dependency Trust</p>
             <h3>Every new package checked before it ships</h3>
             <p>Newly-added dependencies are verified against the real PyPI/npm registry. A package that doesn't exist fails the turn — one corrective re-prompt, then rollback, before it ever reaches the expensive gate below.</p>
           </article>
           <article class="trust-card">
-            <p class="trust-label">5 · Secret Leak</p>
+            <p class="trust-label">6 · Secret Leak</p>
             <h3>Every diff scanned for hardcoded credentials</h3>
             <p>Added lines are checked against real credential formats (AWS, GitHub, Slack, Stripe, Anthropic, OpenAI, Google, PEM keys) and new .env files. A high-confidence match fails the turn — one corrective re-prompt, then rollback, same as Dependency Trust.</p>
           </article>
           <article class="trust-card">
-            <p class="trust-label">6 · Test Quality</p>
+            <p class="trust-label">7 · Test Quality</p>
             <h3>Mutation-tested, not just test-passed</h3>
             <p>Once the real suite passes, a bounded set of AST mutants scoped to the functions this turn touched (comparison/boolean/constant flips) are re-run against it. A mutant the suite doesn't catch means a test that passes without verifying that logic — a fair-vote signal, not a veto.</p>
           </article>
           <article class="trust-card">
-            <p class="trust-label">7 · Verify</p>
+            <p class="trust-label">8 · Verify</p>
             <h3>Eight independent signals</h3>
             <p>Tests, lint/typecheck, an LLM goal-satisfaction critic, a diff-similarity thrash detector, an optional browser telemetry check, mutation-based test quality, and the Dependency Trust and Secret Leak results above.</p>
           </article>
           <article class="trust-card">
-            <p class="trust-label">8 · Signed Receipt</p>
+            <p class="trust-label">9 · Signed Receipt</p>
             <h3>An Ed25519-signed reproducibility record</h3>
             <p>Prompt hash, diff hash, and the full gate verdict, signed and written into the same commit as the checkpoint below. Verify any receipt offline with <code>sonic verify-receipts</code> — no access to the machine that generated it required.</p>
           </article>
           <article class="trust-card">
-            <p class="trust-label">9 · Rollback or ship</p>
+            <p class="trust-label">10 · Rollback or ship</p>
             <h3>Only proven progress sticks</h3>
-            <p>Pass → new checkpoint, pushed to GitHub. Fail → hard reset to the last good state, failure logged to the Continuity Graph.</p>
+            <p>Pass → new checkpoint, pushed to GitHub — and every linked repo (see Multi-Repo Anchoring below) refreshes its own checkpoint to match. Fail → hard reset to the last good state in every one of them together, failure logged to the Continuity Graph.</p>
           </article>
           <article class="trust-card">
-            <p class="trust-label">10 · Review Risk</p>
+            <p class="trust-label">11 · Review Risk</p>
             <h3>Told what to actually check</h3>
             <p>Every shipped turn's changed files ranked by blast radius, sensitive-path exposure, missing test coverage, unverified dependencies, and suspicious credential-shaped assignments — a static heuristic, not another LLM call, so it's instant.</p>
           </article>
@@ -343,6 +417,16 @@
             <p class="trust-label">↻ · Escalation</p>
             <h3>A HIGH-risk turn upgrades the next one</h3>
             <p>Review Risk flagging a HIGH file feeds back into Build and Verify: the very next turn runs at the stronger model you've configured for that coding agent and for the critic, then falls back to the default the turn after. Cross-turn, not a stage — it never fires with no risky-file history, and it never overrides a model you haven't opted in.</p>
+          </article>
+          <article class="trust-card">
+            <p class="trust-label">↻ · Rules Engine</p>
+            <h3>The same failure, learned once</h3>
+            <p>When one Verify failure category repeats across turns, a supervisor-critic call writes one durable rule into the project's own rules file — folded into every prompt after that, and mirrored into <code>.cursorrules</code>/<code>CLAUDE.md</code> if the project already has one. One rule per category, appended, never rewritten.</p>
+          </article>
+          <article class="trust-card">
+            <p class="trust-label">↻ · Multi-Repo Anchoring</p>
+            <h3>Frontend, backend, schema — rolled back together</h3>
+            <p>Register the other repos a feature ticket spans. Every turn snapshots all of them alongside the primary repo; a passed turn refreshes every linked checkpoint, a failed one rolls every linked repo back with it — the agent still runs once per turn, against the primary workdir only.</p>
           </article>
           <article class="trust-card">
             <p class="trust-label">Local UI</p>
@@ -403,6 +487,10 @@ sonic doctor</pre>
           <span class="differentiator-pill">Test Quality Gate</span>
           <span class="differentiator-pill">Signed Turn Receipts</span>
           <span class="differentiator-pill">Risk-Aware Model Escalation</span>
+          <span class="differentiator-pill">PTY-Native Execution</span>
+          <span class="differentiator-pill">Live Syntax Watch</span>
+          <span class="differentiator-pill">Self-Evolving Rules Engine</span>
+          <span class="differentiator-pill">Multi-Repository State Anchoring</span>
           <span class="differentiator-pill">Checkpoint / Verify / Rollback</span>
           <span class="differentiator-pill">Continuity Graph</span>
           <span class="differentiator-pill">Provider-agnostic</span>
@@ -436,6 +524,22 @@ sonic doctor</pre>
           <details class="faq-item">
             <summary>What is Risk-Aware Model Escalation?</summary>
             <p>A feedback loop from Review Risk back into Build and Verify, not a new gate. After a turn ships, if its Review Risk brief contains at least one HIGH-risk file (large blast radius, a sensitive-path match, or no matching test change), the <em>next</em> turn — and only that one — runs the coding-agent CLI and Supersonic's own critic call at a stronger model. Each coding agent gets its own configured escalation target (a verified flag: <code>--model</code> for Claude Code/Codex/OpenCode/Aider, <code>--model</code> for Cursor Agent's CLI), and the critic call uses your provider's own default (strongest) model instead of its normal fast model. It decays automatically the turn after — there's no standing state, just "was the immediately preceding turn's shipped diff flagged high-risk." If you haven't configured an escalation model for the agent you're using, or the previous turn had no high-risk files, nothing changes and the loop runs at its normal cost.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Does PTY-native execution actually intercept file writes before they hit disk?</summary>
+            <p>No, and Supersonic doesn't claim it does. A pseudo-terminal (PTY) governs a child process's stdin/stdout stream — that's it. It cannot see, let alone intercept, a filesystem write syscall; that's a fundamentally different, much heavier mechanism (ptrace/seccomp syscall interception, or a FUSE overlay filesystem), and this feature doesn't implement either. What PTY-native execution actually does: run the coding-agent CLI inside a real <code>pty.fork()</code>ed terminal instead of a plain subprocess pipe, so a CLI that behaves differently when it detects it isn't attached to a terminal (many disable colors, progress bars, or interactive confirmations the instant stdout is a pipe) runs the same way it would for a human typing the command directly. It's off by default, POSIX-only, and falls back to the standard subprocess path automatically on any platform or CLI it can't run cleanly on.</p>
+          </details>
+          <details class="faq-item">
+            <summary>What is Live Syntax Watch, and how is it different from PTY execution?</summary>
+            <p>A separate, unrelated mechanism — not something derived from the PTY. It's a background thread that polls every touched Python file's modification time roughly every 250ms and re-parses it with <code>ast.parse</code> the instant it changes, so a broken file gets flagged within a fraction of a second of being saved instead of only at the end of the whole turn (when Syntax Shield's diff-based check already catches it). A file's first-ever sighting is never flagged, so a pre-existing broken file the agent hasn't touched yet is never misreported. It's observability, not enforcement: it doesn't pause or kill the agent process, because doing that safely and generally across five different third-party CLIs isn't something this feature attempts.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Is the Self-Evolving Rules Engine the same as OpenEvolve/EvoAgentX-style prompt mutation?</summary>
+            <p>No — deliberately narrower. Those projects run genetic-algorithm-style search over a population of candidate prompts scored against a fitness function. Supersonic's version is simpler: once the exact same Verify failure category (a syntax error, a hallucinated dependency, a failing test, a weak-coverage mutant, etc.) has repeated across a configurable number of turns, one supervisor-critic LLM call writes exactly one concise rule from that specific failure trace and appends it — never rewrites or randomly mutates an existing one — to the project's own <code>.supersonic/rules.md</code>, which then gets folded into every subsequent turn's prompt. Best-effort, it also mirrors into <code>.cursorrules</code> or <code>CLAUDE.md</code> if the project already has one of those real convention files, updating only its own clearly marked section — never creating one of those files from scratch, since that would silently opt a project into a tool convention it never asked for.</p>
+          </details>
+          <details class="faq-item">
+            <summary>What does Multi-Repository State Anchoring actually coordinate?</summary>
+            <p>Checkpoint and rollback, across however many independent git working directories you register for a project — not code generation. The coding agent still runs exactly once per turn, against the primary repo only, exactly as it does today; nothing here spins up a second agent run against a linked frontend or backend repo automatically. What's real: register N repo paths once, and from then on every turn snapshots all of them before the agent runs. Once the primary repo's turn is scored, every linked repo is either checkpointed to match (the primary turn passed) or rolled back to its last coordinated anchor (the primary turn failed) — together, never one without the others. That's the actual property a multi-repo feature ticket needs: nothing in the linked set can silently drift out of sync with what the primary repo's Verify gate actually approved.</p>
           </details>
           <details class="faq-item">
             <summary>Is this hosted?</summary>

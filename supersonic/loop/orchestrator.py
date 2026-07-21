@@ -14,6 +14,7 @@ net) with a loop that can only move forward on verified evidence.
 from __future__ import annotations
 
 import logging
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -28,9 +29,11 @@ from supersonic.integrations.linear import create_issue as linear_create_issue, 
 from supersonic.integrations.notify import notify_completion
 from supersonic.loop.checkpoint import Checkpoint, CheckpointManager
 from supersonic.loop.dependency_mapper import build_target_graph
+from supersonic.loop.multi_repo import MultiRepoCoordinator, load_linked_repos
 from supersonic.loop.planner import ProductBrand, TurnPlan, generate_brand, generate_plan, generate_turn_plan
 from supersonic.loop.rollback import rollback_to
 from supersonic.memory import ContinuityGraph, ContinuityLedger, distill, should_distill
+from supersonic.memory.rules_engine import active_rules_block, classify_gate_failure, observe_failure
 from supersonic.providers import get_provider
 from supersonic.providers.base import LLMProvider, ProviderError
 from supersonic.research.tavily import TavilyResearch, is_configured as tavily_configured
@@ -42,6 +45,7 @@ from supersonic.verify.critic import CriticVerdict
 from supersonic.verify.dependency_trust import DependencyTrustVerdict, run_dependency_trust
 from supersonic.verify.secret_leak import SecretLeakVerdict, run_secret_leak_gate
 from supersonic.verify.gate import GateResult, build_qa_reprompt, run_gate
+from supersonic.verify.live_syntax_watch import LiveSyntaxWatcher
 from supersonic.verify.qa import CheckResult, run_tests
 from supersonic.verify.receipts import build_receipt, write_receipt
 from supersonic.verify.review_risk import build_review_brief
@@ -143,12 +147,13 @@ def _pick_idea(secrets: UserSecrets, provider: Optional[LLMProvider], seed: str,
 
 def _build_prompt(
     *, idea: str, plan: str, brand: ProductBrand, goal: str, turn: int, continuity_context: str,
-    dependency_context: str = "",
+    dependency_context: str = "", rules_context: str = "",
 ) -> str:
     brand_block = brand.to_context_block()
     header = f"# Supersonic — build turn {turn}" if turn > 1 else "# Supersonic — build turn 1 (kickoff)"
     task_block = f"## Task\n{goal}" if turn > 1 else f"## Product idea\n{idea}"
     dependency_block = f"\n{dependency_context}\n" if dependency_context else ""
+    rules_block = f"\n{rules_context}\n" if rules_context else ""
     return f"""{header}
 
 {task_block}
@@ -159,7 +164,7 @@ def _build_prompt(
 {plan}
 
 {continuity_context}
-{dependency_block}
+{dependency_block}{rules_block}
 ## Instructions
 - Push toward the plan concretely — real source files, not just markdown.
 - Respect every invariant listed above; do not repeat any listed known failure.
@@ -242,6 +247,24 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
         ctx.checkpoint_event(init_checkpoint, verified=True)
         last_good = init_checkpoint
 
+        # Multi-Repository State Anchoring: if this project has any linked
+        # repos registered (.supersonic/linked_repos.json in the primary
+        # workdir), snapshot every one of them right alongside the primary
+        # repo's own init checkpoint. The coding agent still only runs
+        # against the primary workdir — what's coordinated here is
+        # checkpoint/rollback, so a linked frontend/backend/schema repo can
+        # never end up out of sync with what the primary repo's Verify gate
+        # actually approved. See loop/multi_repo.py.
+        multi_coordinator: Optional[MultiRepoCoordinator] = None
+        last_multi_anchors: Dict[str, Checkpoint] = {}
+        if not demo:
+            linked = load_linked_repos(workdir)
+            if linked:
+                multi_coordinator = MultiRepoCoordinator(linked)
+                if multi_coordinator.repo_paths():
+                    last_multi_anchors = multi_coordinator.checkpoint_all(0, "setup complete")
+                    ctx.emit({"type": "multi_repo_anchored", "repos": multi_coordinator.repo_paths()})
+
         ctx.emit({"type": "setup_complete", "github_url": github_url or "", "linear_url": linear_url or ""})
 
         # ---- loop ----
@@ -321,9 +344,21 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
             else:
                 ctx.dle_stage_event("factor", "skipped", "demo mode" if demo else "disabled in settings")
 
+            # Self-Evolving Rules Engine: whatever durable rules have been
+            # synthesized so far from repeated Verify failures on this
+            # project (see memory/rules_engine.py) — empty until a failure
+            # category has actually repeated at least once.
+            rules_context = ""
+            if not demo and secrets.dle_rules_evolution:
+                try:
+                    rules_context = active_rules_block(workdir)
+                except Exception:
+                    logger.exception("rules engine: failed to read active rules, continuing without them")
+
             prompt = _build_prompt(
                 idea=idea, plan=plan, brand=brand, goal=goal, turn=turn,
                 continuity_context=retrieval.context_block, dependency_context=dependency_context,
+                rules_context=rules_context,
             )
 
             ctx.start_phase(f"turn-{turn}", agent_kind.title(), f"Turn {turn}…", stage="loop")
@@ -353,24 +388,46 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                 # genuinely saw.
                 effective_prompt = prompt
 
+                # Live Syntax Watch: a concurrent filesystem watcher running
+                # for the duration of the agent's main invocation below (not
+                # the later corrective re-prompts — Syntax Shield's own
+                # diff-based check already covers those). Pure observability
+                # in this version: it surfaces a broken file within a
+                # fraction of a second of it being saved, it doesn't
+                # interrupt the agent process. See verify/live_syntax_watch.py.
+                live_watch = LiveSyntaxWatcher(workdir) if secrets.dle_live_syntax_watch else None
+
                 # DLE stage 2 — patch-diff mode (optional). Falls back to the
                 # normal full-file-rewrite path on any failure; never blocks a turn.
-                if secrets.dle_patch_diff_mode:
-                    ctx.dle_stage_event("patch", "running")
-                    patch_result = run_patch_diff_turn(runner, prompt, workdir, on_line=ctx.agent_line, model=agent_model_override)
-                    if patch_result.applied:
-                        ctx.dle_stage_event("patch", "pass", f"applied cleanly in {patch_result.attempts} attempt(s)")
-                        agent_result = patch_result.agent_result
-                        ctx.agent_line(f"[patch-diff mode] applied cleanly in {patch_result.attempts} attempt(s)")
+                with (live_watch if live_watch is not None else nullcontext()):
+                    if secrets.dle_patch_diff_mode:
+                        ctx.dle_stage_event("patch", "running")
+                        patch_result = run_patch_diff_turn(runner, prompt, workdir, on_line=ctx.agent_line, model=agent_model_override)
+                        if patch_result.applied:
+                            ctx.dle_stage_event("patch", "pass", f"applied cleanly in {patch_result.attempts} attempt(s)")
+                            agent_result = patch_result.agent_result
+                            ctx.agent_line(f"[patch-diff mode] applied cleanly in {patch_result.attempts} attempt(s)")
+                        else:
+                            ctx.dle_stage_event("patch", "fail", f"fell back to full-file rewrite: {patch_result.fallback_reason}")
+                            ctx.agent_line(
+                                f"[patch-diff mode] falling back to full-file rewrite: {patch_result.fallback_reason}"
+                            )
+                            agent_result = runner.run(prompt, workdir, on_line=ctx.agent_line, model=agent_model_override)
                     else:
-                        ctx.dle_stage_event("patch", "fail", f"fell back to full-file rewrite: {patch_result.fallback_reason}")
-                        ctx.agent_line(
-                            f"[patch-diff mode] falling back to full-file rewrite: {patch_result.fallback_reason}"
-                        )
+                        ctx.dle_stage_event("patch", "skipped", "disabled in settings")
                         agent_result = runner.run(prompt, workdir, on_line=ctx.agent_line, model=agent_model_override)
+
+                if live_watch is not None:
+                    live_findings = live_watch.latest_findings()
+                    if live_findings:
+                        names = ", ".join(f.path for f in live_findings[:3])
+                        ctx.dle_stage_event("livewatch", "fail", f"{len(live_findings)} file(s) flagged live: {names}")
+                        f0 = live_findings[0]
+                        ctx.agent_line(f"[live syntax watch] mid-turn: {f0.path}:{f0.lineno} — {f0.error}")
+                    else:
+                        ctx.dle_stage_event("livewatch", "pass", "no syntax errors detected while the agent was writing files")
                 else:
-                    ctx.dle_stage_event("patch", "skipped", "disabled in settings")
-                    agent_result = runner.run(prompt, workdir, on_line=ctx.agent_line, model=agent_model_override)
+                    ctx.dle_stage_event("livewatch", "skipped", "disabled in settings")
 
                 diff = checkpoints.diff_since(last_good)
 
@@ -652,6 +709,18 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                 last_good = new_checkpoint
                 ctx.checkpoint_event(new_checkpoint, verified=True)
 
+                # Multi-Repository State Anchoring: the primary repo's turn
+                # just passed Verify — refresh every linked repo's anchor to
+                # match, so a subsequent failed turn rolls all of them back
+                # together to a point that's actually consistent with what
+                # shipped here, not an older one.
+                if multi_coordinator is not None:
+                    try:
+                        last_multi_anchors = multi_coordinator.checkpoint_all(turn, goal[:150])
+                        ctx.emit({"type": "multi_repo_checkpoint", "turn": turn, "repos": multi_coordinator.repo_paths()})
+                    except Exception:
+                        logger.exception("multi-repo anchor: failed to checkpoint linked repos, continuing without it")
+
                 # Review Risk only runs on turns that shipped — a rolled-back
                 # turn needs nothing, it's already gone. This is the "what
                 # should a human actually read" layer, not another pass/fail
@@ -686,10 +755,51 @@ def run_factory(run: Run, secrets: UserSecrets, seed: str = "") -> Dict[str, Any
                 ctx.finish_phase(f"turn-{turn}", "Verified", success=True, stage="loop")
             else:
                 reason = gate.critic.reasoning or gate.summary
-                ledger.record_failure(turn, f"Turn {turn} failed: {goal[:60]}", f"{gate.summary} {reason}".strip(), tags=[chosen_agent])
+                failure_title = f"Turn {turn} failed: {goal[:60]}"
+                failure_body = f"{gate.summary} {reason}".strip()
+                category = classify_gate_failure(gate)
+                ledger.record_failure(turn, failure_title, failure_body, tags=[chosen_agent, category])
                 ctx.ledger_event("failure", goal[:80], turn)
+
+                # Self-Evolving Rules Engine: only fires once this exact
+                # failure category has repeated at least
+                # rules_evolution_min_repeats times (the ledger entry just
+                # written above counts toward that) and only once per
+                # category — see memory/rules_engine.py.
+                if not demo and secrets.dle_rules_evolution:
+                    try:
+                        new_rule = observe_failure(
+                            workdir, ledger, gate=gate, turn=turn,
+                            failure_title=failure_title, failure_body=failure_body,
+                            provider=provider, min_repeats=secrets.rules_evolution_min_repeats,
+                        )
+                        if new_rule is not None:
+                            ctx.emit({
+                                "type": "rule_learned", "turn": turn,
+                                "category": new_rule.category, "rule": new_rule.rule_text,
+                                "repeats_observed": new_rule.repeats_observed,
+                            })
+                            ctx.agent_line(
+                                f"[rules engine] learned a new rule after {new_rule.repeats_observed} "
+                                f"repeats of {new_rule.category}: {new_rule.rule_text}"
+                            )
+                    except Exception:
+                        logger.exception("rules engine failed unexpectedly, continuing without it")
+
                 rollback_to(workdir, last_good)
                 ctx.checkpoint_event(last_good, verified=False)
+
+                # Multi-Repository State Anchoring: the primary repo's turn
+                # failed and just rolled back — every linked repo rolls back
+                # to its last coordinated anchor too, so nothing in the
+                # linked set keeps a change the primary repo didn't.
+                if multi_coordinator is not None:
+                    try:
+                        multi_coordinator.rollback_all(last_multi_anchors)
+                        ctx.emit({"type": "multi_repo_rollback", "turn": turn, "repos": multi_coordinator.repo_paths()})
+                    except Exception:
+                        logger.exception("multi-repo anchor: failed to roll back linked repos")
+
                 ctx.finish_phase(f"turn-{turn}", "Rolled back", success=False, stage="loop")
 
             if should_distill(ledger, turn):

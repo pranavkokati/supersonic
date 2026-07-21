@@ -155,6 +155,37 @@ class UserSecrets(BaseModel):
     escalation_model_cursor: str = ""
     escalation_model_aider: str = ""
 
+    # --- Reliability Mesh -----------------------------------------------
+    # PTY-native execution: run the coding-agent CLI inside a real
+    # pseudo-terminal (stdlib `pty`, POSIX only) instead of a plain
+    # subprocess pipe, so it sees a genuine TTY (isatty() true) instead of a
+    # pipe some CLIs treat as "non-interactive" and silently degrade
+    # behavior for. This is NOT filesystem-level interception — a PTY only
+    # ever governs a process's stdin/stdout, never its file writes (see
+    # agents/pty_runner.py's module docstring for the full explanation).
+    # Off by default: it's the newer, POSIX-only path, and falls back to
+    # the plain-subprocess path automatically wherever it can't run.
+    dle_pty_supervision: bool = False
+    # Live Syntax Watch: a concurrent filesystem watcher (stdlib `ast` +
+    # mtime polling, no extra dependency) that re-parses each touched
+    # Python file within a fraction of a second of it being saved, mid-turn
+    # — instant visibility into a broken file instead of waiting for the
+    # end-of-turn, diff-based Syntax Shield check. Observability only in
+    # this version: it surfaces findings immediately, it doesn't (yet)
+    # interrupt the running agent process. Cheap; on by default.
+    dle_live_syntax_watch: bool = True
+    # Self-Evolving Rules Engine: when the SAME Verify failure category
+    # repeats across turns at least `rules_evolution_min_repeats` times, a
+    # supervisor-critic LLM call synthesizes one durable rule from the
+    # specific failure trace and appends it (never rewrites/mutates an
+    # existing one) to this project's own `.supersonic/rules.md`, which then
+    # gets folded into every subsequent turn's prompt — and, best-effort,
+    # mirrored into `.cursorrules`/`CLAUDE.md` if the project already has
+    # one of those real convention files (never created from scratch). On
+    # by default; a no-op until a failure category actually repeats.
+    dle_rules_evolution: bool = True
+    rules_evolution_min_repeats: int = Field(default=2, ge=2, le=10)
+
     model_config = ConfigDict(extra="ignore")
 
     def schedule_state_file(self) -> Path:

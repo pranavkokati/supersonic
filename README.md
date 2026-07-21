@@ -72,6 +72,40 @@ around three specific answers to those problems:
   invariants and open failures always included regardless of relevance score, because silently dropping a
   constraint is far more expensive than a few extra tokens of context.
 
+- **PTY-native execution.** An optional (off by default, POSIX-only) execution mode that runs the coding-agent
+  CLI inside a real pseudo-terminal (`pty.fork()`) instead of a plain subprocess pipe, so a CLI that
+  special-cases "no terminal attached" (disabling colors, progress bars, interactive confirmations) behaves
+  the way it would for a human typing the command directly. To be precise about what this is and isn't: a PTY
+  governs a process's stdin/stdout, never its filesystem writes — this is not a claim of intercepting a file
+  write before it hits disk (that would require ptrace/seccomp syscall interception or a FUSE overlay
+  filesystem, neither of which this implements). Falls back to the standard subprocess path automatically on
+  any platform or CLI it can't run cleanly on. See `supersonic/agents/pty_runner.py`.
+
+- **Live Syntax Watch.** A concurrent background thread — mtime polling plus `ast.parse`, no kernel hooks —
+  that re-checks every touched Python file within a fraction of a second of it being saved, *while the agent
+  is still writing files*, not just at the end of the turn like Syntax Shield's diff-based check (which still
+  runs as the authoritative gate afterward). Observability only in this version: it surfaces the exact broken
+  file and line early, it does not pause or interrupt the agent process. See
+  `supersonic/verify/live_syntax_watch.py`.
+
+- **Self-Evolving Rules Engine.** When the exact same Verify failure category repeats across turns at least
+  `rules_evolution_min_repeats` times, one supervisor-critic LLM call synthesizes a single concise, durable
+  rule from the specific failure trace and appends it — never rewrites or randomly mutates an existing one —
+  to the project's own `.supersonic/rules.md`, folded into every subsequent turn's prompt. Best-effort, it
+  also mirrors into `.cursorrules`/`CLAUDE.md` if the project already has one of those real convention files,
+  updating only its own clearly marked section and leaving everything else untouched — never creating one of
+  those files from scratch. Narrower by design than genetic-algorithm prompt mutation (OpenEvolve/EvoAgentX's
+  actual approach): one durable rule per repeated failure category, not a population of candidate prompts
+  scored against a fitness function. See `supersonic/memory/rules_engine.py`.
+
+- **Multi-Repository State Anchoring.** Register the other git working directories a feature ticket actually
+  spans — a frontend, a backend, a schema-definitions repo — and every turn snapshots all of them alongside
+  the primary repo. When the primary repo's turn ships, every linked repo's checkpoint refreshes to match;
+  when it fails Verify and rolls back, every linked repo rolls back with it. The coding agent still runs
+  exactly once per turn, against the primary workdir only — what's coordinated is checkpoint and rollback, so
+  nothing in the linked set can silently drift out of sync with what the primary repo's Verify gate actually
+  approved. See `supersonic/loop/multi_repo.py`.
+
 No multi-agent racing, no bandit tuning, no doubled API spend chasing a marginal pick between two coding
 agents — the Verify gate already rejects bad output regardless of which agent produced it. Everything else —
 GitHub shipping, Linear, research enrichment, completion notifications — is optional and off unless you
@@ -119,14 +153,15 @@ generated them required.
 | Stage | What happens |
 |---|---|
 | Plan | One provider-agnostic call grounds the idea and writes a build plan + product name |
-| Checkpoint | Git-native commit + tag of the current verified state |
-| Build | Claude Code, Codex, OpenCode, Cursor Agent, or Aider — bring your own coding-agent CLI |
+| Checkpoint | Git-native commit + tag of the current verified state (and every linked repo, if Multi-Repository State Anchoring is configured) |
+| Build | Claude Code, Codex, OpenCode, Cursor Agent, or Aider — bring your own coding-agent CLI, optionally run inside a real PTY |
+| Live Watch | Concurrent filesystem watcher flags a broken Python file within a fraction of a second of it being saved, mid-turn |
 | Dependency Trust | Newly-added packages checked against the real PyPI/npm registry — nonexistent fails the turn outright |
 | Secret Leak | Added diff lines scanned for the structural shape of a real credential — a match fails the turn outright |
 | Test Quality | Once real tests pass, bounded AST mutants scoped to touched functions are re-tested against the suite — a fair-vote signal |
 | Verify | Tests + lint/typecheck + goal-satisfaction critic + thrash detector + the above, combined into one pass/fail gate |
 | Signed Receipt | An Ed25519-signed prompt/diff/gate attestation is written into the same commit as the checkpoint below |
-| Rollback or ship | Pass → new checkpoint, pushed to GitHub. Fail → hard reset, failure logged to the Continuity Graph |
+| Rollback or ship | Pass → new checkpoint (+ every linked repo), pushed to GitHub. Fail → hard reset (+ every linked repo), failure logged to the Continuity Graph |
 | Review Risk | Every file in a shipped turn ranked by blast radius, sensitive-path exposure, and missing test coverage |
 
 The loop stops when the planner marks the build genuinely complete *and* the latest verification passed. The
@@ -137,15 +172,19 @@ Review Risk output has at least one HIGH-risk file, the *Build* and *Verify* sta
 at the stronger model configured for that coding agent (and for the critic), then fall back to the default the
 turn after.
 
+**The Self-Evolving Rules Engine** is likewise a feedback loop, not a stage: once a Verify failure category
+repeats enough times, one supervisor-critic call writes a durable rule into the project's own rules file,
+folded into every prompt from then on.
+
 ## Project layout
 
 ```text
 supersonic/          Python package
   providers/          LLM provider abstraction (Anthropic, OpenAI, Ollama) — auto-detected
-  memory/             Continuity Graph — ledger, retrieval, distillation
-  loop/               Checkpoint / Rollback / Planner / Orchestrator
-  verify/             Tests, lint, critic, thrash, dependency trust, secret leak, test quality, receipts, combined gate
-  agents/             Coding-agent CLI runner
+  memory/             Continuity Graph — ledger, retrieval, distillation; rules_engine.py — Self-Evolving Rules Engine
+  loop/               Checkpoint / Rollback / Planner / Orchestrator; multi_repo.py — Multi-Repository State Anchoring
+  verify/             Tests, lint, critic, thrash, dependency trust, secret leak, test quality, receipts, live syntax watch, combined gate
+  agents/             Coding-agent CLI runner; pty_runner.py — optional PTY-native execution
   integrations/       Native git + gh CLI shipping, optional Linear, optional webhook notify
   research/           Optional Tavily enrichment — never required
 app/                  Local onboarding + dashboard (FastAPI + vanilla JS, SSE live view)
